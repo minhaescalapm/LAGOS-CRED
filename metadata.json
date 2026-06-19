@@ -1,0 +1,6 @@
+{
+  "name": "Gestão de Empréstimos Diários",
+  "description": "Aplicativo PWA para controle financeiro, gestão de clientes, controle de diárias, cobrança via Pix e acompanhamento de contratos de empréstimos diários.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
