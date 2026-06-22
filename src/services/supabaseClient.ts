@@ -3,14 +3,18 @@ import { createClient } from "@supabase/supabase-js";
 // Safe loading and sanitizing of Supabase credentials
 const env = (import.meta as any).env || {};
 
-const rawUrl = env.VITE_SUPABASE_URL || "";
+// User provided credentials on 2026-06-22
+const FALLBACK_URL = "https://clgvhxiwpcenvkjboozw.supabase.co";
+const FALLBACK_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsZ3ZoeGl3cGNlbnZramJvb3p3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4OTUxNTUsImV4cCI6MjA5NzQ3MTE1NX0.ou0mt9L2ju0HgPjpnGPBfiiLMzaNGhg8FVd_sVkjYfE";
+
+const rawUrl = env.VITE_SUPABASE_URL || FALLBACK_URL;
 const rawKey = 
   env.VITE_SUPABASE_ANON_KEY || 
   env.VITE_SUPABASE_ANON || 
   env.VITE_SUPABASE_ANO || 
   env.VITE_SUPABASE_ANC || 
   env.VITE_SUPABASE_AN || 
-  "";
+  FALLBACK_KEY;
 
 // Cleans the URL to prevent "PGRST125: Invalid path specified in request URL"
 export const sanitizeSupabaseUrl = (url: string): string => {
@@ -77,14 +81,14 @@ export interface DiagnosticResult {
 
 export const getSupabaseDiagnostics = async (): Promise<DiagnosticResult> => {
   const envVar = (import.meta as any).env || {};
-  const urlVar = envVar.VITE_SUPABASE_URL || "";
+  const urlVar = envVar.VITE_SUPABASE_URL || FALLBACK_URL;
   const keyVar = 
     envVar.VITE_SUPABASE_ANON_KEY || 
     envVar.VITE_SUPABASE_ANON || 
     envVar.VITE_SUPABASE_ANO || 
     envVar.VITE_SUPABASE_ANC || 
     envVar.VITE_SUPABASE_AN || 
-    "";
+    FALLBACK_KEY;
 
   const cleanUrl = sanitizeSupabaseUrl(urlVar);
   const cleanKey = sanitizeSupabaseKey(keyVar);
