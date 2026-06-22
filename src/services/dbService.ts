@@ -17,6 +17,21 @@ const CLIENTS_KEY = "gestao_emprestimos_clients";
 const LOANS_KEY = "gestao_emprestimos_loans";
 const PAYMENTS_KEY = "gestao_emprestimos_payments";
 
+function generateUUID(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch (e) {
+    // Ignore and fallback
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 // Seed initial mockup data in Local Storage
 function seedLocalMockData() {
   const mockClients: Client[] = [
@@ -211,7 +226,7 @@ export const dbService = {
   async addClient(name: string, phone: string): Promise<Client> {
     const cleanedPhone = phone.replace(/\D/g, "");
     const newClient: Client = {
-      id: `c_${Date.now()}`,
+      id: generateUUID(),
       name: name.trim(),
       phone: cleanedPhone
     };
@@ -280,7 +295,7 @@ export const dbService = {
     startDate: string
   ): Promise<Loan> {
     const newLoan: Loan = {
-      id: `l_${Date.now()}`,
+      id: generateUUID(),
       clientId,
       amountInvested,
       totalAmount: Math.round(dailyRate * totalDays),
@@ -458,7 +473,7 @@ export const dbService = {
         currentRef = addDays(currentRef, 1);
       }
       const newPayment: Payment = {
-        id: `p_${Date.now()}_${i}`,
+        id: generateUUID(),
         loanId,
         paymentDate, // The day the money was actually received
         referenceDate: currentRef, // The target reference date being cleared
@@ -610,7 +625,7 @@ export const dbService = {
               currentRef = addDays(currentRef, 1);
             }
             newPayments.push({
-              id: `p_${Date.now()}_${i}`,
+              id: generateUUID(),
               loan_id: loanId,
               payment_date: getTodayStr(),
               reference_date: currentRef,
@@ -650,7 +665,7 @@ export const dbService = {
           currentRef = addDays(currentRef, 1);
         }
         payments.push({
-          id: `p_${Date.now()}_${i}`,
+          id: generateUUID(),
           loanId,
           paymentDate: getTodayStr(),
           referenceDate: currentRef,
