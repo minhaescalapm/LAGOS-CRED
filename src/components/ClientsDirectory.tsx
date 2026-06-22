@@ -187,7 +187,7 @@ export const ClientsDirectory: React.FC<ClientsDirectoryProps> = ({
 
                 return (
                   <div
-                    key={item.client.id}
+                    key={item.activeLoan ? `directory-loan-${item.activeLoan.id}` : `directory-client-${item.client.id}`}
                     onClick={() => setSelectedClientId(item.client.id === selectedClientId ? null : item.client.id)}
                     className={`p-3 sm:p-4 flex items-center justify-between gap-3 cursor-pointer transition-all ${
                       isSelected 

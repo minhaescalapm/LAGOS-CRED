@@ -65,8 +65,9 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
     window.open(url, "_blank");
 
     // Track sent clients in current session
-    if (!sentClients.includes(client.id)) {
-      setSentClients([...sentClients, client.id]);
+    const targetId = activeLoan.id;
+    if (!sentClients.includes(targetId)) {
+      setSentClients([...sentClients, targetId]);
     }
   };
 
@@ -152,10 +153,11 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
             </div>
           ) : (
             activeClients.map((c) => {
-              const hasBeenSent = sentClients.includes(c.client.id);
+              const uniqueTargetId = c.activeLoan ? c.activeLoan.id : c.client.id;
+              const hasBeenSent = sentClients.includes(uniqueTargetId);
               return (
                 <div
-                  key={c.client.id}
+                  key={c.activeLoan ? `collect-loan-${c.activeLoan.id}` : `collect-client-${c.client.id}`}
                   className={`p-3 bg-zinc-900/20 hover:bg-zinc-900/40 border ${
                     hasBeenSent
                       ? "border-emerald-500/30 bg-emerald-500/5 animate-fade-in"

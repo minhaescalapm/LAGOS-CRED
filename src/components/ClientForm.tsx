@@ -17,9 +17,10 @@ interface ClientFormProps {
   }) => void;
   clientToEdit?: ClientWithLoanDetails | null;
   isEmbeddedInTab?: boolean;
+  initialStartDate?: string;
 }
 
-export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab }: ClientFormProps) {
+export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, initialStartDate }: ClientFormProps) {
   const [name, setName] = useState(clientToEdit ? clientToEdit.client.name : "");
   
   // Format initial phone value if editing
@@ -51,6 +52,9 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab }:
   const [startDate, setStartDate] = useState(() => {
     if (clientToEdit && clientToEdit.activeLoan) {
       return clientToEdit.activeLoan.startDate;
+    }
+    if (initialStartDate) {
+      return initialStartDate;
     }
     return getTodayStr();
   });

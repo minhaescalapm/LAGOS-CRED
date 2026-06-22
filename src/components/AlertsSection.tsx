@@ -68,7 +68,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
             if (!client.activeLoan) return null;
             return (
               <div 
-                key={client.client.id}
+                key={client.activeLoan ? `alert-loan-${client.activeLoan.id}` : `alert-client-${client.client.id}`}
                 className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-yellow-500/5 hover:bg-yellow-500/10 border border-yellow-500/10 rounded-xl gap-3 transition-colors"
               >
                 <div>

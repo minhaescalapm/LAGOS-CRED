@@ -10,6 +10,7 @@ import { ClientCard } from "./components/ClientCard";
 import { ClientsDirectory } from "./components/ClientsDirectory";
 import { FinancialControl } from "./components/FinancialControl";
 import { QuickCollectModal } from "./components/QuickCollectModal";
+import { SmartAgenda } from "./components/SmartAgenda";
 import { 
   Plus, 
   Search, 
@@ -40,7 +41,8 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   // Filter & Search states
-  const [activeTab, setActiveTab] = useState<"home" | "collections" | "financial_control">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "collections" | "financial_control" | "agenda">("home");
+  const [agendaPreSelectedDate, setAgendaPreSelectedDate] = useState<string | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "NO_LOAN">("ALL");
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
@@ -390,7 +392,7 @@ export default function App() {
         {stats && <FinancialSummary stats={stats} />}
 
         {/* 4. TAB NAVIGATION TOGGLES ON SINGLE PAGE (Meets Single-View Guidelines) */}
-        <div id="navigation-tabs" className="grid grid-cols-3 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
+        <div id="navigation-tabs" className="grid grid-cols-4 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
           <button
             onClick={() => setActiveTab("home")}
             className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
@@ -400,8 +402,8 @@ export default function App() {
             }`}
           >
             <Home className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden xs:inline">Tela Inicial</span>
-            <span className="xs:hidden">Início</span>
+            <span className="hidden sm:inline">Tela Inicial</span>
+            <span className="sm:hidden">Início</span>
           </button>
 
           <button
@@ -414,8 +416,22 @@ export default function App() {
             title="Diretório de Clientes e Fichas de Cobrança"
           >
             <Users className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden xs:inline">Clientes</span>
-            <span className="xs:hidden">Clientes</span>
+            <span className="hidden sm:inline">Clientes</span>
+            <span className="sm:hidden font-sans">Clientes</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("agenda")}
+            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === "agenda"
+                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+            title="Agenda Inteligente 📅"
+          >
+            <CalendarDays className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="hidden sm:inline">Agenda Inteligente</span>
+            <span className="sm:hidden">Agenda</span>
           </button>
 
           <button
@@ -427,8 +443,8 @@ export default function App() {
             }`}
           >
             <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden xs:inline">Controle Financeiro</span>
-            <span className="xs:hidden">Financeiro</span>
+            <span className="hidden sm:inline">Controle Financeiro</span>
+            <span className="sm:hidden">Financeiro</span>
           </button>
         </div>
 
@@ -686,7 +702,7 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {filteredClients.map(clientDetail => (
                   <ClientCard
-                    key={clientDetail.client.id}
+                    key={clientDetail.activeLoan ? `loan-${clientDetail.activeLoan.id}` : `client-${clientDetail.client.id}`}
                     clientDetail={clientDetail}
                     onRegisterPayment={handleRegisterPayment}
                     onOpenPixModal={(clName) => setPixModal({ isOpen: true, clientName: clName })}
@@ -726,6 +742,34 @@ export default function App() {
           </div>
         )}
 
+        {/* TAB 4: AGENDA INTELIGENTE */}
+        {activeTab === "agenda" && (
+          <div className="animate-fade-in space-y-5">
+            {/* VOLTAR BUTTON */}
+            <div className="flex justify-start">
+              <button
+                type="button"
+                onClick={() => setActiveTab("home")}
+                className="py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-yellow-500 font-bold text-xs rounded-xl border border-zinc-850 flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-black/40"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Voltar para Tela Inicial</span>
+              </button>
+            </div>
+
+            <SmartAgenda
+              clientsWithLoans={clientsWithLoans}
+              allLoans={allLoans}
+              allPayments={allPayments}
+              simulationDate={simulationDate}
+              onAddNewContractForDate={(dateStr) => {
+                setAgendaPreSelectedDate(dateStr);
+                setShowAddModal(true);
+              }}
+            />
+          </div>
+        )}
+
       </main>
 
       {/* 5. FOOTER DETAILS AND COPYRIGHT LOGS */}
@@ -737,7 +781,11 @@ export default function App() {
       {/* MODAL 1: ADD CLIENT FORM */}
       {showAddModal && (
         <ClientForm
-          onClose={() => setShowAddModal(false)}
+          initialStartDate={agendaPreSelectedDate}
+          onClose={() => {
+            setShowAddModal(false);
+            setAgendaPreSelectedDate(undefined);
+          }}
           onSubmit={handleAddNewClient}
         />
       )}

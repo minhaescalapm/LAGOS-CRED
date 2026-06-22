@@ -756,23 +756,14 @@ export const dbService = {
     const loans = await this.getLoans();
     const payments = await this.getPayments();
 
-    return clients.map(client => {
-      // Find active loan if exists
-      const clientLoans = loans.filter(l => l.clientId === client.id);
-      
-      // Grab newest or active loan
-      let latestLoan: Loan | null = null;
-      if (clientLoans.length > 0) {
-        latestLoan = clientLoans[0];
-        for (let i = 1; i < clientLoans.length; i++) {
-          if (clientLoans[i].startDate > latestLoan.startDate) {
-            latestLoan = clientLoans[i];
-          }
-        }
-      }
+    return clients.flatMap(client => {
+      // Find all loans for this client, sorted newest first
+      const clientLoans = loans
+        .filter(l => l.clientId === client.id)
+        .sort((a, b) => b.startDate.localeCompare(a.startDate));
 
-      if (!latestLoan) {
-        return {
+      if (clientLoans.length === 0) {
+        return [{
           client,
           activeLoan: null,
           payments: [],
@@ -781,42 +772,44 @@ export const dbService = {
           referenceDate: "",
           isDelayed: false,
           daysBehind: 0
+        }];
+      }
+
+      return clientLoans.map(loan => {
+        // Payments for this loan
+        const loanPayments = payments
+          .filter(p => p.loanId === loan.id)
+          .sort((a, b) => a.referenceDate.localeCompare(b.referenceDate));
+        
+        const paidCount = loanPayments.length;
+        const totalDays = loan.totalDays;
+        
+        // Find reference coverage date
+        let referenceDate = "";
+        if (paidCount > 0) {
+          referenceDate = loanPayments[paidCount - 1].referenceDate;
+        } else {
+          referenceDate = loan.startDate;
+        }
+
+        // Calculate atrasos (Delay) - Sundays are skipped if excludeSundays is true
+        const isExcluding = loan.excludeSundays !== false;
+        const elapsedDays = getElapsedDaysExcludingSundays(addDays(loan.startDate, 1), simulationDate, isExcluding); 
+        const expectedDaysToPay = Math.max(0, Math.min(elapsedDays, totalDays));
+        const daysBehind = Math.max(0, expectedDaysToPay - paidCount);
+        const isDelayed = daysBehind >= 1;
+
+        return {
+          client,
+          activeLoan: loan,
+          payments: loanPayments,
+          paidCount,
+          totalDays,
+          referenceDate,
+          isDelayed: isDelayed && (paidCount < totalDays),
+          daysBehind: paidCount >= totalDays ? 0 : daysBehind
         };
-      }
-
-      // Payments for this loan
-      const loanPayments = payments
-        .filter(p => p.loanId === latestLoan.id)
-        .sort((a, b) => a.referenceDate.localeCompare(b.referenceDate));
-      
-      const paidCount = loanPayments.length;
-      const totalDays = latestLoan.totalDays;
-      
-      // Find reference coverage date
-      let referenceDate = "";
-      if (paidCount > 0) {
-        referenceDate = loanPayments[paidCount - 1].referenceDate;
-      } else {
-        referenceDate = latestLoan.startDate;
-      }
-
-      // Calculate atrasos (Delay) - Sundays are skipped if excludeSundays is true
-      const isExcluding = latestLoan.excludeSundays !== false;
-      const elapsedDays = getElapsedDaysExcludingSundays(addDays(latestLoan.startDate, 1), simulationDate, isExcluding); 
-      const expectedDaysToPay = Math.max(0, Math.min(elapsedDays, totalDays));
-      const daysBehind = Math.max(0, expectedDaysToPay - paidCount);
-      const isDelayed = daysBehind >= 1;
-
-      return {
-        client,
-        activeLoan: latestLoan,
-        payments: loanPayments,
-        paidCount,
-        totalDays,
-        referenceDate,
-        isDelayed: isDelayed && (paidCount < totalDays),
-        daysBehind: paidCount >= totalDays ? 0 : daysBehind
-      };
+      });
     });
   },
 
