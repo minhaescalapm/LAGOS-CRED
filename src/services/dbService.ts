@@ -134,7 +134,8 @@ function mapLoans(supabaseLoans: any[]): Loan[] {
     totalAmount: Number(l.total_amount ?? l.totalAmount ?? 0),
     dailyRate: Number(l.daily_rate ?? l.dailyRate ?? 0),
     totalDays: Number(l.total_days ?? l.totalDays ?? 0),
-    startDate: String(l.start_date || l.startDate || "")
+    startDate: String(l.start_date || l.startDate || ""),
+    excludeSundays: l.exclude_sundays !== undefined ? Boolean(l.exclude_sundays) : (l.excludeSundays !== undefined ? Boolean(l.excludeSundays) : true)
   }));
 }
 
@@ -363,6 +364,41 @@ export const dbService = {
     return updatedLoan || { id, clientId: "", amountInvested, totalDays, dailyRate, totalAmount, startDate };
   },
 
+  // TOGGLE EXCLUDE SUNDAYS FOR A LOAN
+  async toggleExcludeSundays(loanId: string): Promise<boolean> {
+    const loans = await this.getLoans();
+    const loan = loans.find(l => l.id === loanId);
+    if (!loan) return false;
+
+    const newToggle = !(loan.excludeSundays !== false); // default to true, so toggles to false
+    loan.excludeSundays = newToggle;
+
+    if (supabase) {
+      try {
+        await supabase.from("loans").update({
+          exclude_sundays: newToggle
+        }).eq("id", loanId);
+      } catch (err) {
+        console.warn("Supabase toggle Sunday error:", err);
+      }
+    }
+
+    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+    
+    // Also, we must reconstruct payments for this loan to apply the Sunday rule shifts!
+    const payments = await this.getPayments();
+    const loanPayments = payments
+      .filter(p => p.loanId === loanId)
+      .sort((a, b) => a.referenceDate.localeCompare(b.referenceDate));
+      
+    const paidCount = loanPayments.length;
+    if (paidCount > 0) {
+      await this.adjustLoan(loanId, paidCount, loan.startDate);
+    }
+    
+    return newToggle;
+  },
+
   // REGISTER PAYMENTS (DATA + 1 LOGIC)
   async registerPayment(loanId: string, dailyCount: number, paymentDate: string): Promise<Payment[]> {
     const loans = await this.getLoans();
@@ -387,9 +423,8 @@ export const dbService = {
     
     if (countAlreadyPaid === 0) {
       // First payment! The reference starts at the startDate.
-      // So the first payment covers the startDate itself.
-      // To apply 'previous reference + 1 day', we can imagine previous reference was 'startDate - 1 day'.
-      startingRefDate = addDays(loan.startDate, -1);
+      // So the first payment covers the day AFTER the startDate.
+      startingRefDate = loan.startDate;
     } else {
       // Last reference date covered
       startingRefDate = loanPayments[loanPayments.length - 1].referenceDate;
@@ -406,10 +441,11 @@ export const dbService = {
     const newPayments: Payment[] = [];
 
     let currentRef = startingRefDate;
+    const isExcluding = loan.excludeSundays !== false;
     for (let i = 0; i < daysToRegister; i++) {
       currentRef = addDays(currentRef, 1);
-      // Skip Sundays! If currentRef is Sunday, shift it to Monday
-      if (isSunday(currentRef)) {
+      // Skip Sundays! If currentRef is Sunday and excludeSundays is true, shift it to Monday
+      if (isExcluding && isSunday(currentRef)) {
         currentRef = addDays(currentRef, 1);
       }
       const newPayment: Payment = {
@@ -556,10 +592,11 @@ export const dbService = {
         // Insert new reconstructed payments
         if (validatedPaidCount > 0) {
           const newPayments = [];
-          let currentRef = addDays(targetStartDate, -1);
+          let currentRef = targetStartDate;
+          const isExcluding = loan.excludeSundays !== false;
           for (let i = 0; i < validatedPaidCount; i++) {
             currentRef = addDays(currentRef, 1);
-            if (isSunday(currentRef)) {
+            if (isExcluding && isSunday(currentRef)) {
               currentRef = addDays(currentRef, 1);
             }
             newPayments.push({
@@ -595,10 +632,11 @@ export const dbService = {
     payments = payments.filter(p => p.loanId !== loanId);
 
     if (validatedPaidCount > 0) {
-      let currentRef = addDays(targetStartDate, -1);
+      let currentRef = targetStartDate;
+      const isExcluding = loan.excludeSundays !== false;
       for (let i = 0; i < validatedPaidCount; i++) {
         currentRef = addDays(currentRef, 1);
-        if (isSunday(currentRef)) {
+        if (isExcluding && isSunday(currentRef)) {
           currentRef = addDays(currentRef, 1);
         }
         payments.push({
@@ -759,11 +797,12 @@ export const dbService = {
       if (paidCount > 0) {
         referenceDate = loanPayments[paidCount - 1].referenceDate;
       } else {
-        referenceDate = addDays(latestLoan.startDate, -1);
+        referenceDate = latestLoan.startDate;
       }
 
-      // Calculate atrasos (Delay) - Sundays are skipped
-      const elapsedDays = getElapsedDaysExcludingSundays(latestLoan.startDate, simulationDate); 
+      // Calculate atrasos (Delay) - Sundays are skipped if excludeSundays is true
+      const isExcluding = latestLoan.excludeSundays !== false;
+      const elapsedDays = getElapsedDaysExcludingSundays(addDays(latestLoan.startDate, 1), simulationDate, isExcluding); 
       const expectedDaysToPay = Math.max(0, Math.min(elapsedDays, totalDays));
       const daysBehind = Math.max(0, expectedDaysToPay - paidCount);
       const isDelayed = daysBehind >= 1;

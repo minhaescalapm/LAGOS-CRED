@@ -12,6 +12,7 @@ export interface Loan {
   dailyRate: number; // Valor da diária
   totalDays: number; // Tempo do empréstimo em dias
   startDate: string; // Data inicial YYYY-MM-DD
+  excludeSundays?: boolean; // Se ignora os domingos no ciclo financeiro
 }
 
 export interface Payment {

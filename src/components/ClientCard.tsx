@@ -15,7 +15,7 @@ import {
   Sliders,
   CalendarDays as CalendarDaysIcon
 } from "lucide-react";
-import { formatFriendlyDate, addDays, getTodayStr, getRetroactiveStartDate, getElapsedDaysExcludingSundays } from "../utils/dateUtils";
+import { formatFriendlyDate, addDays, getTodayStr, getRetroactiveStartDate, getElapsedDaysExcludingSundays, isSunday } from "../utils/dateUtils";
 
 interface ClientCardProps {
   clientDetail: ClientWithLoanDetails;
@@ -24,6 +24,7 @@ interface ClientCardProps {
   onDeleteClient: (clientId: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
   onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => void;
+  onToggleSunday?: (loanId: string) => void;
 }
 
 export const ClientCard: React.FC<ClientCardProps> = ({ 
@@ -32,7 +33,8 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   onOpenPixModal,
   onDeleteClient,
   onEditClient,
-  onAdjustLoan
+  onAdjustLoan,
+  onToggleSunday
 }) => {
   const { client, activeLoan, paidCount, totalDays, referenceDate, isDelayed, daysBehind } = clientDetail;
 
@@ -69,8 +71,13 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   };
 
   // Smart Calculations for instant preview & single-button adjustments
-  const computedRetroStartDate = activeLoan ? getRetroactiveStartDate(getTodayStr(), adjustedPaidCount) : getTodayStr();
-  const elapsedDaysBack = activeLoan ? getElapsedDaysExcludingSundays(adjustedStartDate, getTodayStr()) : 0;
+  const isExcludingSundays = activeLoan ? activeLoan.excludeSundays !== false : true;
+  const computedRetroStartDate = activeLoan 
+    ? addDays(getRetroactiveStartDate(getTodayStr(), adjustedPaidCount, isExcludingSundays), -1) 
+    : getTodayStr();
+  const elapsedDaysBack = activeLoan 
+    ? getElapsedDaysExcludingSundays(addDays(adjustedStartDate, 1), getTodayStr(), isExcludingSundays) 
+    : 0;
   const expectedPaidCount = activeLoan ? Math.max(0, Math.min(elapsedDaysBack, totalDays)) : 0;
 
   // Show temporary Whatsapp Button for the most recent payload
@@ -173,7 +180,17 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
   const isFullyPaid = paidCount >= totalDays;
 
   // Predict new reference date if we added payDaysCount days
-  const predictedNewReferenceDate = addDays(referenceDate || activeLoan.startDate, payDaysCount);
+  const getPredictedRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
+    let currentRef = startRef || (activeLoan ? activeLoan.startDate : getTodayStr());
+    for (let i = 0; i < count; i++) {
+      currentRef = addDays(currentRef, 1);
+      if (excludeSundays && isSunday(currentRef)) {
+        currentRef = addDays(currentRef, 1);
+      }
+    }
+    return currentRef;
+  };
+  const predictedNewReferenceDate = getPredictedRefDate(referenceDate, payDaysCount, isExcludingSundays);
 
   // Trigger registration
   const handlePaymentSubmit = (e: React.FormEvent) => {
@@ -364,6 +381,23 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
             {referenceDate ? formatFriendlyDate(referenceDate) : formatFriendlyDate(activeLoan.startDate)}
           </span>
         </div>
+
+        {/* SUNDAY SETTING BUTTON */}
+        {onToggleSunday && (
+          <button
+            id={`sunday-toggle-${activeLoan.id}`}
+            onClick={() => onToggleSunday(activeLoan.id)}
+            className={`w-full py-2 px-3 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer select-none active:scale-[0.98] ${
+              activeLoan.excludeSundays !== false
+                ? "bg-zinc-900/50 border-yellow-500/20 text-yellow-500 hover:bg-yellow-500/10 hover:border-yellow-500/40"
+                : "bg-zinc-950/40 border-zinc-800 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-400 hover:border-zinc-700"
+            }`}
+            title="Clique para alternar de domingos"
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            {activeLoan.excludeSundays !== false ? "Domingos Isentos" : "Domingos Cobrados"}
+          </button>
+        )}
       </div>
 
       {/* COMPROVANTE WHATSAPP NOTIFIER */}
@@ -584,49 +618,50 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
 
       {/* QUICK ACTIONS BUTTONS */}
       {!isExpandingPay && !isAdjusting && (
-        <div className="grid grid-cols-1 gap-2 select-none">
-          {/* BOTÃO RECEBER PAGAMENTO */}
-          {!isFullyPaid ? (
-            <button
-              onClick={() => {
-                setPayDaysCount(1);
-                setIsExpandingPay(!isExpandingPay);
-                setIsAdjusting(false); // Mutual exclusion
-              }}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg hover:shadow-yellow-500/10 transition-all cursor-pointer"
-            >
-              <PlusCircle className="w-3.5 h-3.5 text-zinc-950" />
-              Receber Pagamento
-            </button>
-          ) : (
-            <div className="w-full py-2.5 px-3 text-center bg-yellow-500/10 text-yellow-500 text-xs font-bold rounded-xl border border-yellow-500/20 select-none cursor-default flex items-center justify-center gap-1">
-              <Check className="w-4 h-4 text-yellow-500" />
-              Contrato Quitado
-            </div>
-          )}
-
-          {/* SECUNDARY ROW: COBRANÇA PIX & COBRAR NO WHATSAPP */}
-          <div className="flex items-center gap-2">
-            {/* COBRANÇA PIX */}
-            <button
-              onClick={() => onOpenPixModal(client.name)}
-              className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 bg-zinc-800 hover:bg-zinc-750 text-zinc-250 font-semibold text-xs rounded-xl border border-zinc-700/80 transition-all cursor-pointer"
-              title="Obter dados PIX"
-            >
-              <Copy className="w-3.5 h-3.5 text-yellow-350" />
-              Cobrança Pix
-            </button>
-
-            {/* COBRAR NO WHATSAPP */}
+        <div className="space-y-2 select-none">
+          {/* PRINCIPAL ROW: COBRANÇA (WHATSAPP VERDE) & RECEBIMENTO (BAIXA AMARELO) */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* BOTAO DE COBRANÇA (WHATSAPP VERDE) */}
             <button
               onClick={handleWhatsAppCharge}
-              className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-2 bg-zinc-800 hover:bg-zinc-750 text-zinc-250 font-semibold text-xs rounded-xl border border-zinc-700/80 transition-all cursor-pointer"
-              title="Cobrar no WhatsApp"
+              className="px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-950/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+              title="Mandar mensagem de cobrança via WhatsApp"
             >
-              <Send className="w-3.5 h-3.5 text-yellow-350" />
-              Whatsapp
+              <Send className="w-4 h-4 text-white shrink-0" />
+              <span>Cobrança</span>
             </button>
+
+            {/* BOTAO DE RECEBIMENTO (DAR BAIXA) */}
+            {!isFullyPaid ? (
+              <button
+                onClick={() => {
+                  setPayDaysCount(1);
+                  setIsExpandingPay(!isExpandingPay);
+                  setIsAdjusting(false); // Exclusão mútua
+                }}
+                className="px-3 py-2.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-yellow-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                title="Registrar recebimento de parcela de diária"
+              >
+                <PlusCircle className="w-4 h-4 text-zinc-950 shrink-0" />
+                <span>Recebimento</span>
+              </button>
+            ) : (
+              <div className="px-3 py-2.5 text-center bg-yellow-500/10 text-yellow-500 text-xs font-bold rounded-xl border border-yellow-500/20 flex items-center justify-center gap-1">
+                <Check className="w-3.5 h-3.5 text-yellow-500 shrink-0" />
+                <span>Quitado</span>
+              </div>
+            )}
           </div>
+
+          {/* SECUNDARY ROW: COBRANÇA PIX (COPIAR QR CODE) */}
+          <button
+            onClick={() => onOpenPixModal(client.name)}
+            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-zinc-900 hover:bg-zinc-850 hover:text-white text-zinc-350 font-bold text-xs rounded-xl border border-zinc-800 transition-all duration-200 cursor-pointer"
+            title="Obter dados PIX"
+          >
+            <Copy className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+            <span>Copiar Chave Pix</span>
+          </button>
         </div>
       )}
     </div>

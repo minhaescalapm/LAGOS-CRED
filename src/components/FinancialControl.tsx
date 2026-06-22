@@ -32,7 +32,7 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
 }) => {
   // Simulator configuration states
   const [simulationMoMGrace, setSimulationMoMGrace] = useState<number>(20); // 20% requested default
-  const [customInterestRate, setCustomInterestRate] = useState<number>(30); // 30% average interest rate
+  const [customInterestRate, setCustomInterestRate] = useState<number>(42); // 42% standard interest rate defaulted
 
   // 1. Calculate general financial aggregates from database
   const totalLent = allLoans.reduce((sum, l) => sum + l.amountInvested, 0);
@@ -72,6 +72,12 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
 
   // Delinquency rate calculations (NPL %)
   const defaultRateByClient = totalActiveCount > 0 ? (delinquentCount / totalActiveCount) * 100 : 0;
+  
+  // --- BLINDAGEM DE LUCROS & COMPENSAÇÃO DE INADIMPLÊNCIA MATEMÁTICA ENGENHADA ---
+  const activeDefaultRate = defaultRateByClient > 0 ? defaultRateByClient : 15;
+  const breakEvenInterestRate = (activeDefaultRate / (100 - Math.min(99, activeDefaultRate))) * 100;
+  const maxDefaultTolerance = (1 - (1 / (1 + (customInterestRate / 100)))) * 100;
+  const netInvestmentYieldProfit = ((1 - (activeDefaultRate / 100)) * (1 + (customInterestRate / 100)) - 1) * 100;
   
   // Delinquency by Value (overdue amount)
   const totalOverdueAmount = delinquentClients.reduce((sum, c) => {
@@ -261,6 +267,42 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
               <div className="flex justify-between text-[9px] text-zinc-500 font-mono pt-0.5">
                 <span>0% Risco de Perda</span>
                 <span>Alerta Crítico &gt; 35%</span>
+              </div>
+            </div>
+
+            {/* BLINDAGEM DE LUCRO INTERACTIVE MATHEMATICS CARD */}
+            <div className="border-t border-zinc-900 pt-4 mt-2 space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <h5 className="font-extrabold text-[11px] uppercase tracking-wider text-zinc-300">Estrutura de Blindagem de Margem ({customInterestRate}%)</h5>
+              </div>
+              
+              <div className="space-y-2 text-xs">
+                {/* Break-even indicator */}
+                <div className="flex justify-between items-center py-1.5 px-3 bg-zinc-900/30 rounded-xl border border-zinc-900">
+                  <span className="text-zinc-400 text-[10px] uppercase font-mono">Ponto de Equilíbrio (Break-Even)</span>
+                  <span className="font-bold text-zinc-100 font-mono">{breakEvenInterestRate.toFixed(1)}%</span>
+                </div>
+                
+                {/* Net Safe Return rate */}
+                <div className="flex justify-between items-center py-1.5 px-3 bg-zinc-900/40 rounded-xl border border-emerald-500/10">
+                  <span className="text-emerald-400 text-[10px] uppercase font-bold font-mono">Margem Real Total Estimada</span>
+                  <span className={`font-black font-mono ${netInvestmentYieldProfit >= 0 ? "text-emerald-400" : "text-amber-500"}`}>
+                    {netInvestmentYieldProfit >= 0 ? "+" : ""}{netInvestmentYieldProfit.toFixed(1)}%
+                  </span>
+                </div>
+                
+                {/* Max Delinquency Tolerance limit */}
+                <div className="flex justify-between items-center py-1.5 px-3 bg-zinc-900/30 rounded-xl border border-zinc-900">
+                  <span className="text-zinc-400 text-[10px] uppercase font-mono">Limite para Suportar Perdas</span>
+                  <span className="font-bold text-red-400 font-mono">{maxDefaultTolerance.toFixed(1)}% <span className="text-[9px] text-zinc-500">atraso</span></span>
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                <p className="text-[10px] text-emerald-400 leading-normal text-justify font-mono">
+                  ✨ <strong>Cálculos Prontos:</strong> Com a taxa padrão de <strong>{customInterestRate}%</strong>, sua carteira de repasse está blindada. Mesmo que a inadimplência chegue a <strong>{maxDefaultTolerance.toFixed(1)}%</strong>, seu capital inicial permanece intocado. Cada ciclo gerará lucro real que, se reinvestido, garante a meta de <strong>crescer a carteira 20% ao mês</strong> de forma robusta e recorrente!
+                </p>
               </div>
             </div>
 

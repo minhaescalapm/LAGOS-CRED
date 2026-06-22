@@ -67,12 +67,12 @@ export function isSaturday(dateStr: string): boolean {
   return date.getDay() === 6;
 }
 
-export function getElapsedDaysExcludingSundays(startDateStr: string, endDateStr: string): number {
+export function getElapsedDaysExcludingSundays(startDateStr: string, endDateStr: string, excludeSundays: boolean = true): number {
   if (!startDateStr || !endDateStr || startDateStr > endDateStr) return 0;
   let count = 0;
   let current = startDateStr;
   while (current <= endDateStr) {
-    if (!isSunday(current)) {
+    if (!excludeSundays || !isSunday(current)) {
       count++;
     }
     current = addDays(current, 1);
@@ -80,13 +80,13 @@ export function getElapsedDaysExcludingSundays(startDateStr: string, endDateStr:
   return count;
 }
 
-export function getRetroactiveStartDate(endDateStr: string, paidCount: number): string {
+export function getRetroactiveStartDate(endDateStr: string, paidCount: number, excludeSundays: boolean = true): string {
   if (paidCount <= 0) return endDateStr;
   let currentRef = endDateStr;
   let count = 0;
   let tempDate = endDateStr;
   while (count < paidCount) {
-    if (!isSunday(tempDate)) {
+    if (!excludeSundays || !isSunday(tempDate)) {
       count++;
       if (count === paidCount) {
         return tempDate;

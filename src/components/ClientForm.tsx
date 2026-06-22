@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil } from "lucide-react";
-import { ClientWithLoanDetails } from "../types";
+import { ClientWithLoanDetails, Client } from "../types";
 import { getTodayStr } from "../utils/dateUtils";
+import { dbService } from "../services/dbService";
 
 interface ClientFormProps {
   onClose?: () => void;
@@ -12,6 +13,7 @@ interface ClientFormProps {
     totalDays: number;
     dailyRate: number;
     startDate: string;
+    clientId?: string;
   }) => void;
   clientToEdit?: ClientWithLoanDetails | null;
   isEmbeddedInTab?: boolean;
@@ -55,6 +57,62 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab }:
 
   const [error, setError] = useState("");
   const [isCustomizingParams, setIsCustomizingParams] = useState(false);
+
+  // States for search and autocompleting existing clients in database
+  const [existingClients, setExistingClients] = useState<Client[]>([]);
+  const [filteredSuggestions, setFilteredSuggestions] = useState<Client[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(
+    clientToEdit ? clientToEdit.client.id : null
+  );
+
+  // Load registered clients on mount
+  useEffect(() => {
+    const loadRegisteredClients = async () => {
+      try {
+        const clients = await dbService.getClients();
+        setExistingClients(clients);
+      } catch (err) {
+        console.error("Erro ao carregar clientes cadastrados para sugestão:", err);
+      }
+    };
+    loadRegisteredClients();
+  }, []);
+
+  const handleNameChange = (val: string) => {
+    setName(val);
+    setSelectedClientId(null); // Clear ID link on typed changes
+    
+    if (val.trim().length >= 2) {
+      const filtered = existingClients.filter(c => 
+        c.name.toLowerCase().includes(val.toLowerCase())
+      );
+      setFilteredSuggestions(filtered);
+      setShowSuggestions(true);
+    } else {
+      setFilteredSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  const handleSelectSuggestion = (client: Client) => {
+    setName(client.name);
+    
+    // Mask structure for Brazilian phone: (99) 99999-9999
+    let raw = client.phone.replace(/\D/g, "");
+    if (raw.length > 10) {
+      setPhone(`(${raw.slice(0, 2)}) ${raw.slice(2, 7)}-${raw.slice(7)}`);
+    } else if (raw.length > 6) {
+      setPhone(`(${raw.slice(0, 2)}) ${raw.slice(2, 6)}-${raw.slice(6)}`);
+    } else if (raw.length > 2) {
+      setPhone(`(${raw.slice(0, 2)}) ${raw.slice(2)}`);
+    } else {
+      setPhone(raw);
+    }
+    
+    setSelectedClientId(client.id);
+    setShowSuggestions(false);
+  };
 
   // Interest State (default to 42% standard layout)
   const [interestRate, setInterestRate] = useState<number>(() => {
@@ -193,7 +251,8 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab }:
       amountInvested: principal,
       totalDays: days,
       dailyRate: rate,
-      startDate
+      startDate,
+      clientId: selectedClientId || undefined
     });
   };
 
@@ -250,11 +309,69 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab }:
                   type="text"
                   placeholder="Ex: Carlos Eduardo de Oliveira"
                   value={name}
-                  onChange={e => setName(e.target.value)}
+                  onChange={e => handleNameChange(e.target.value)}
+                  onFocus={() => {
+                    if (name.trim().length >= 2 && filteredSuggestions.length > 0) {
+                      setShowSuggestions(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    // Pequeno timeout para permitir que o clique no botão de sugestão de dados seja processado antes do blur ocultar o container
+                    setTimeout(() => setShowSuggestions(false), 200);
+                  }}
                   className="w-full bg-zinc-950/60 border border-zinc-800 focus:border-amber-400 focus:outline-none rounded-xl py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-650 transition-colors"
                   required
+                  autoComplete="off"
                 />
               </div>
+
+              {/* Box de Sugestões de Auto-complete para o Usuário */}
+              {showSuggestions && filteredSuggestions.length > 0 && (
+                <div className="absolute left-0 right-0 z-50 mt-1 max-h-52 overflow-y-auto bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-1 divide-y divide-zinc-850/45">
+                  <span className="text-[9px] text-zinc-500 font-extrabold uppercase tracking-wider block p-2 select-none bg-zinc-950/60 rounded-t-lg">
+                    Clientes Cadastrados no Banco (Sugestão)
+                  </span>
+                  {filteredSuggestions.map(client => (
+                    <button
+                      key={client.id}
+                      type="button"
+                      onMouseDown={() => handleSelectSuggestion(client)}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-zinc-800 text-zinc-200 hover:text-yellow-400 font-medium flex items-center justify-between transition-colors first:rounded-xl last:rounded-xl cursor-pointer"
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-semibold">{client.name}</span>
+                        <span className="text-[9px] text-zinc-500 font-mono">
+                          {client.phone.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")}
+                        </span>
+                      </div>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-yellow-400/15 text-yellow-400 rounded-md font-bold uppercase tracking-wider select-none shrink-0 border border-yellow-400/20">
+                        Selecionar
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Alerta de Cliente de sugestão preenchido */}
+              {selectedClientId && (
+                <div className="flex items-center justify-between mt-1 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg select-none text-[10px] text-emerald-400 animate-fade-in font-medium">
+                  <span className="flex items-center gap-1">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>Vinculado ao cliente cadastrado no banco.</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedClientId(null);
+                      setName("");
+                      setPhone("");
+                    }}
+                    className="text-[9px] hover:text-red-400 font-extrabold uppercase hover:underline cursor-pointer tracking-wider"
+                  >
+                    Desvincular
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Whatsapp */}
@@ -444,20 +561,20 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab }:
 
                 {/* Quick Days Shortcuts */}
                 <div className="space-y-1.5 pt-1">
-                  <span className="text-[9px] text-zinc-500 font-bold block uppercase tracking-widest">Atalhos rápidos para o prazo de dias:</span>
-                  <div className="flex flex-wrap gap-1">
-                    {[10, 15, 20, 26, 30, 45, 60].map(day => (
+                  <span className="text-[9px] text-zinc-405 font-bold block uppercase tracking-widest">Prazos de Contrato Padrões (Ditáveis):</span>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {[26, 31, 62, 93, 124].map(day => (
                       <button
                         key={day}
                         type="button"
                         onClick={() => handleDaysChange(day)}
-                        className={`flex-1 text-center py-1.5 text-[10px] font-mono font-extrabold rounded-lg transition-all border cursor-pointer ${
+                        className={`text-center py-2 text-[11px] font-mono font-extrabold rounded-lg transition-all border cursor-pointer ${
                           totalDays === day
                             ? "bg-yellow-500 border-yellow-500 text-zinc-950 font-black shadow-md shadow-yellow-500/10"
-                            : "bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                            : "bg-zinc-900/60 border-zinc-800 text-zinc-405 hover:text-zinc-205 hover:border-zinc-700"
                         }`}
                       >
-                        {day}d {day === 26 ? "(Padrão)" : ""}
+                        {day}d {day === 26 ? "★" : ""}
                       </button>
                     ))}
                   </div>

@@ -90,12 +90,22 @@ export default function App() {
     totalDays: number;
     dailyRate: number;
     startDate: string;
+    clientId?: string;
   }) => {
     setIsLoading(true);
     try {
-      const newClient = await dbService.addClient(data.name, data.phone);
+      let targetClientId: string;
+      if (data.clientId) {
+        // Se selecionamos um cliente existente no autocomplete, atualizamos os dados dele para sincronia e usamos seu ID
+        await dbService.editClient(data.clientId, data.name, data.phone);
+        targetClientId = data.clientId;
+      } else {
+        const newClient = await dbService.addClient(data.name, data.phone);
+        targetClientId = newClient.id;
+      }
+
       await dbService.addLoan(
-        newClient.id,
+        targetClientId,
         data.amountInvested,
         data.totalDays,
         data.dailyRate,
@@ -202,6 +212,19 @@ export default function App() {
     } catch (err: any) {
       console.error("Erro ao reajustar contrato:", err);
       alert("Erro ao reajustar contrato: " + (err.message || "Tente novamente."));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle toggling excludeSundays setting for customer loan
+  const handleToggleSunday = async (loanId: string) => {
+    setIsLoading(true);
+    try {
+      await dbService.toggleExcludeSundays(loanId);
+      await refreshData();
+    } catch (err: any) {
+      console.error("Erro ao alterar isenção de domingos:", err);
     } finally {
       setIsLoading(false);
     }
@@ -670,6 +693,7 @@ export default function App() {
                     onDeleteClient={handleDeleteClient}
                     onEditClient={(clientDetail) => setEditingClient(clientDetail)}
                     onAdjustLoan={handleAdjustLoan}
+                    onToggleSunday={handleToggleSunday}
                   />
                 ))}
               </div>
