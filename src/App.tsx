@@ -10,6 +10,7 @@ import { ClientCard } from "./components/ClientCard";
 import { ClientsDirectory } from "./components/ClientsDirectory";
 import { FinancialControl } from "./components/FinancialControl";
 import { QuickCollectModal } from "./components/QuickCollectModal";
+import { SupabaseSetupHelper } from "./components/SupabaseSetupHelper";
 import { 
   Plus, 
   Search, 
@@ -27,7 +28,11 @@ import {
   Trash2,
   Loader2,
   Coins,
-  Send
+  Send,
+  Home,
+  ArrowLeft,
+  Database,
+  Server
 } from "lucide-react";
 
 export default function App() {
@@ -37,7 +42,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   // Filter & Search states
-  const [activeTab, setActiveTab] = useState<"collections" | "add_client" | "financial_control">("collections");
+  const [activeTab, setActiveTab] = useState<"home" | "collections" | "add_client" | "financial_control">("home");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "NO_LOAN">("ALL");
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
@@ -364,7 +369,20 @@ export default function App() {
         {stats && <FinancialSummary stats={stats} />}
 
         {/* 4. TAB NAVIGATION TOGGLES ON SINGLE PAGE (Meets Single-View Guidelines) */}
-        <div id="navigation-tabs" className="grid grid-cols-3 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
+        <div id="navigation-tabs" className="grid grid-cols-4 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveTab("home")}
+            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === "home"
+                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <Home className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="hidden xs:inline">Tela Inicial</span>
+            <span className="xs:hidden">Início</span>
+          </button>
+
           <button
             onClick={() => setActiveTab("collections")}
             className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
@@ -406,9 +424,104 @@ export default function App() {
           </button>
         </div>
 
+        {/* TELA INICIAL (Dashboard & Supabase SQL Integration Helper) */}
+        {activeTab === "home" && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Boas-vindas Banner */}
+            <div className="bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-900 border border-zinc-800 rounded-2xl p-6 relative overflow-hidden select-none">
+              <div className="absolute right-0 bottom-0 opacity-10 pointer-events-none">
+                <Coins className="w-64 h-64 text-yellow-500 translate-x-12 translate-y-12" />
+              </div>
+              <div className="max-w-2xl">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-[10px] font-black uppercase tracking-wider rounded-lg mb-3">
+                  <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+                  Gerenciamento Lagos Crédito Active v2
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-tight">
+                  Bem-vindo ao Lagos Crédito, Lagos Celular5
+                </h2>
+                <p className="text-xs sm:text-sm text-zinc-400 mt-2 font-medium leading-relaxed">
+                  Painel unificado para monitoramento de parcelas diárias, cadastro ágil de clientes e controle estatístico detalhado de caixa. O sistema está preparado para armazenamento em nuvem no Supabase com redundância em tempo real.
+                </p>
+              </div>
+            </div>
+
+            {/* Atalhos Rápidos Premium */}
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-450 mb-3 block">Ações Principais da Carteira</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Atalho 1: Cobranças */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("collections")}
+                  className="group block text-left bg-zinc-900/40 hover:bg-zinc-850/60 border border-zinc-850/80 hover:border-yellow-500/40 p-5 rounded-2xl transition-all shadow-md hover:shadow-yellow-500/5 cursor-pointer relative"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/25 flex items-center justify-center text-yellow-500 mb-4 transition-all group-hover:scale-110">
+                    <Coins className="w-5 h-5 text-yellow-500" />
+                  </div>
+                  <h4 className="font-extrabold text-white text-sm group-hover:text-yellow-500 transition-colors">
+                    Balcão de Cobranças →
+                  </h4>
+                  <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                    Cobrar diárias ativas, agrupar faturas pendentes e registrar pagamentos rápidos via WhatsApp.
+                  </p>
+                </button>
+
+                {/* Atalho 2: Cadastrar */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("add_client")}
+                  className="group block text-left bg-zinc-900/40 hover:bg-zinc-850/60 border border-zinc-850/80 hover:border-yellow-500/40 p-5 rounded-2xl transition-all shadow-md hover:shadow-yellow-500/5 cursor-pointer relative"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/25 flex items-center justify-center text-yellow-500 mb-4 transition-all group-hover:scale-110">
+                    <Users className="w-5 h-5 text-yellow-500" />
+                  </div>
+                  <h4 className="font-extrabold text-white text-sm group-hover:text-yellow-500 transition-colors">
+                    Ficha de Novo Cliente →
+                  </h4>
+                  <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                    Iniciar um microcrédito e criar um contrato parametrizado com diárias automáticas.
+                  </p>
+                </button>
+
+                {/* Atalho 3: Controle Financeiro */}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("financial_control")}
+                  className="group block text-left bg-zinc-900/40 hover:bg-zinc-850/60 border border-zinc-850/80 hover:border-yellow-500/40 p-5 rounded-2xl transition-all shadow-md hover:shadow-yellow-500/5 cursor-pointer relative"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/25 flex items-center justify-center text-yellow-500 mb-4 transition-all group-hover:scale-110">
+                    <Sparkles className="w-5 h-5 text-yellow-500" />
+                  </div>
+                  <h4 className="font-extrabold text-white text-sm group-hover:text-yellow-500 transition-colors">
+                    Controle de Caixa →
+                  </h4>
+                  <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                    Ver balanços, relatórios, ciclos fiscais de domingo a domingo e gráficos analíticos de lucros.
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* SEÇÃO INTEGRATIVE SUPABASE PLATFORM INSTRUCTION */}
+            <SupabaseSetupHelper />
+          </div>
+        )}
+
         {/* TAB 1: CLIENTES & COBRANÇA DIRECTORY FILTER GRID (COLLS) */}
         {activeTab === "collections" && (
           <div className="space-y-5 animate-fade-in">
+            {/* VOLTAR BUTTON */}
+            <div className="flex items-center justify-start pb-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab("home")}
+                className="py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-yellow-500 font-bold text-xs rounded-xl border border-zinc-850 flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-black/40"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Voltar para Tela Inicial</span>
+              </button>
+            </div>
             {/* 2A. FILTER CONTROLS BAR */}
             <div className="flex flex-col lg:flex-row gap-3 items-center justify-between select-none">
               
@@ -496,6 +609,18 @@ export default function App() {
         {/* TAB 2: CADASTRAR CLIENTE (Embedded Premium Tab Form) */}
         {activeTab === "add_client" && (
           <div className="max-w-xl mx-auto space-y-5 animate-fade-in">
+            {/* VOLTAR BUTTON */}
+            <div className="flex justify-start">
+              <button
+                type="button"
+                onClick={() => setActiveTab("home")}
+                className="py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-yellow-500 font-bold text-xs rounded-xl border border-zinc-850 flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-black/40"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Voltar para Tela Inicial</span>
+              </button>
+            </div>
+
             <div className="bg-zinc-950/20 border border-zinc-850/80 p-5 sm:p-6 rounded-2xl">
               <div className="flex items-center gap-2 pb-4 mb-4 border-b border-zinc-900 select-none">
                 <Users className="w-5 h-5 text-yellow-500" />
@@ -517,7 +642,19 @@ export default function App() {
 
         {/* TAB 3: CONTROLE FINANCEIRO & DEEXPANSÃO PROJECTIONS */}
         {activeTab === "financial_control" && stats && (
-          <div className="animate-fade-in">
+          <div className="animate-fade-in space-y-5">
+            {/* VOLTAR BUTTON */}
+            <div className="flex justify-start">
+              <button
+                type="button"
+                onClick={() => setActiveTab("home")}
+                className="py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-yellow-500 font-bold text-xs rounded-xl border border-zinc-850 flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-black/40"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Voltar para Tela Inicial</span>
+              </button>
+            </div>
+
             <FinancialControl
               clientsWithLoans={clientsWithLoans}
               stats={stats}
