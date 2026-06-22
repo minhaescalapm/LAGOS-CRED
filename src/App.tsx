@@ -10,7 +10,6 @@ import { ClientCard } from "./components/ClientCard";
 import { ClientsDirectory } from "./components/ClientsDirectory";
 import { FinancialControl } from "./components/FinancialControl";
 import { QuickCollectModal } from "./components/QuickCollectModal";
-import { SupabaseSetupHelper } from "./components/SupabaseSetupHelper";
 import { 
   Plus, 
   Search, 
@@ -31,7 +30,6 @@ import {
   Send,
   Home,
   ArrowLeft,
-  Database,
   Server
 } from "lucide-react";
 
@@ -42,7 +40,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   // Filter & Search states
-  const [activeTab, setActiveTab] = useState<"home" | "collections" | "add_client" | "financial_control">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "collections" | "financial_control">("home");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "NO_LOAN">("ALL");
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
@@ -335,7 +333,7 @@ export default function App() {
 
             {/* Iniciar Operação / Novo cliente */}
             <button
-              onClick={() => setActiveTab("add_client")}
+              onClick={() => setShowAddModal(true)}
               disabled={isLoading}
               className="px-3 py-1.5 md:px-4 md:py-2 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-405 hover:to-amber-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/10 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
@@ -360,7 +358,7 @@ export default function App() {
           <div className="flex items-center gap-1.5 bg-zinc-900/60 px-2.5 py-1 rounded-lg border border-zinc-850">
             <span className={`w-1.5 h-1.5 rounded-full ${dbService.isUsingSupabase() ? "bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.4)]" : "bg-zinc-650"} animate-pulse`} />
             <span className="text-[9px] uppercase font-bold text-zinc-450 tracking-wider font-sans">
-              {dbService.isUsingSupabase() ? "Supabase Conectado" : "Local Database"}
+              {dbService.isUsingSupabase() ? "Nuvem Sincronizada" : "Armazenamento Interno"}
             </span>
           </div>
         </div>
@@ -369,7 +367,7 @@ export default function App() {
         {stats && <FinancialSummary stats={stats} />}
 
         {/* 4. TAB NAVIGATION TOGGLES ON SINGLE PAGE (Meets Single-View Guidelines) */}
-        <div id="navigation-tabs" className="grid grid-cols-4 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
+        <div id="navigation-tabs" className="grid grid-cols-3 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
           <button
             onClick={() => setActiveTab("home")}
             className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
@@ -390,31 +388,18 @@ export default function App() {
                 ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
-            title="Sessão rápida para cobrança de diárias no WhatsApp"
-          >
-            <Coins className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden xs:inline">Cobranças Ativas</span>
-            <span className="xs:hidden">Cobranças</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab("add_client")}
-            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === "add_client"
-                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
+            title="Diretório de Clientes e Fichas de Cobrança"
           >
             <Users className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden xs:inline">Cadastrar Cliente</span>
-            <span className="xs:hidden">Cadastrar</span>
+            <span className="hidden xs:inline">Clientes</span>
+            <span className="xs:hidden">Clientes</span>
           </button>
 
           <button
             onClick={() => setActiveTab("financial_control")}
             className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
               activeTab === "financial_control"
-                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
+                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-850/30 shadow-inner"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
@@ -424,8 +409,8 @@ export default function App() {
           </button>
         </div>
 
-        {/* TELA INICIAL (Dashboard & Supabase SQL Integration Helper) */}
-        {activeTab === "home" && (
+        {/* TELA INICIAL (Dashboard) */}
+        {activeTab === "home" && stats && (
           <div className="space-y-6 animate-fade-in">
             {/* Boas-vindas Banner */}
             <div className="bg-gradient-to-br from-zinc-900 via-zinc-950 to-zinc-900 border border-zinc-800 rounded-2xl p-6 relative overflow-hidden select-none">
@@ -441,46 +426,124 @@ export default function App() {
                   Bem-vindo ao Lagos Crédito, Lagos Celular5
                 </h2>
                 <p className="text-xs sm:text-sm text-zinc-400 mt-2 font-medium leading-relaxed">
-                  Painel unificado para monitoramento de parcelas diárias, cadastro ágil de clientes e controle estatístico detalhado de caixa. O sistema está preparado para armazenamento em nuvem no Supabase com redundância em tempo real.
+                  Painel administrativo para controle e monitoramento de cobranças em tempo real. Acompanhe o caixa, gerencie sua carteira de clientes ativos e controle as diárias de microcrédito com backup seguro na nuvem.
                 </p>
+              </div>
+            </div>
+
+            {/* SEÇÃO PRINCIPAL DE TODOS OS VALORES DO EMPRÉSTIMO */}
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-450 mb-3 block">Dados Financeiros dos Empréstimos</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {/* 1. Capital Investido */}
+                <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl select-none relative group hover:border-yellow-500/30 transition-all">
+                  <dt className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Capital Emprestado</dt>
+                  <dd className="text-xl sm:text-2xl font-black text-white mt-1 group-hover:text-yellow-500 transition-colors">
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(stats.moneyInvested)}
+                  </dd>
+                  <p className="text-[9px] text-zinc-550 mt-1">Capital líquido ativo na rua</p>
+                </div>
+
+                {/* 2. Juros Projetados */}
+                <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl select-none relative group hover:border-yellow-500/30 transition-all">
+                  <dt className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-sans">Lucro Esperado (Juros)</dt>
+                  <dd className="text-xl sm:text-2xl font-black text-yellow-500 mt-1">
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(stats.totalProfit)}
+                  </dd>
+                  <p className="text-[9px] text-zinc-550 mt-1">Rendimento futuro projetado</p>
+                </div>
+
+                {/* 3. Retorno Bruto Total */}
+                <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl select-none relative group hover:border-yellow-500/30 transition-all">
+                  <dt className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Retorno Bruto Total</dt>
+                  <dd className="text-xl sm:text-2xl font-black text-white mt-1">
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(stats.moneyInvested + stats.totalProfit)}
+                  </dd>
+                  <p className="text-[9px] text-zinc-550 mt-1">Soma de capital + lucro esperado</p>
+                </div>
+
+                {/* 4. Restante a Receber */}
+                <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl select-none relative group hover:border-yellow-500/30 transition-all">
+                  <dt className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Saldos a Receber</dt>
+                  <dd className="text-xl sm:text-2xl font-black text-emerald-500 mt-1">
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(stats.futureProjections)}
+                  </dd>
+                  <p className="text-[9px] text-zinc-550 mt-1">Valor pendente de cobranças</p>
+                </div>
+
+                {/* 5. Recebido no Ciclo Corrente */}
+                <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl select-none relative group hover:border-yellow-500/30 transition-all">
+                  <dt className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Recebido (Mês)</dt>
+                  <dd className="text-lg sm:text-xl font-extrabold text-yellow-500 mt-1">
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(stats.receivedThisMonth)}
+                  </dd>
+                  <p className="text-[9px] text-zinc-550 mt-1">Soma recebida no ciclo mensal</p>
+                </div>
+
+                {/* 6. Recebido na Semana */}
+                <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl select-none relative group hover:border-yellow-500/30 transition-all">
+                  <dt className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Recebido (Semana)</dt>
+                  <dd className="text-lg sm:text-xl font-extrabold text-white mt-1">
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(stats.receivedThisWeek)}
+                  </dd>
+                  <p className="text-[9px] text-zinc-550 mt-1">Soma móvel dos últimos 7 dias</p>
+                </div>
+
+                {/* 7. Total de Clientes Cadastrados */}
+                <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl select-none relative group hover:border-yellow-500/30 transition-all">
+                  <dt className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Total de Clientes</dt>
+                  <dd className="text-xl font-black text-white mt-1">
+                    {clientsWithLoans.length}
+                  </dd>
+                  <p className="text-[9px] text-zinc-550 mt-1">Cadastros totais na carteira</p>
+                </div>
+
+                {/* 8. Contratos em Atraso */}
+                <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl select-none relative group hover:border-yellow-500/30 transition-all">
+                  <dt className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Clientes Com Atraso</dt>
+                  <dd className={`text-xl font-black mt-1 ${clientsWithLoans.filter(c => c.isDelayed).length > 0 ? "text-red-500" : "text-zinc-400"}`}>
+                    {clientsWithLoans.filter(c => c.isDelayed).length}
+                  </dd>
+                  <p className="text-[9px] text-zinc-550 mt-1">Parceiros com diária vencida</p>
+                </div>
               </div>
             </div>
 
             {/* Atalhos Rápidos Premium */}
             <div>
-              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-450 mb-3 block">Ações Principais da Carteira</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-450 mb-3 block">Ações Rápidas</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Atalho 1: Cobranças */}
+                {/* Atalho 1: Clientes */}
                 <button
                   type="button"
                   onClick={() => setActiveTab("collections")}
                   className="group block text-left bg-zinc-900/40 hover:bg-zinc-850/60 border border-zinc-850/80 hover:border-yellow-500/40 p-5 rounded-2xl transition-all shadow-md hover:shadow-yellow-500/5 cursor-pointer relative"
                 >
                   <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/25 flex items-center justify-center text-yellow-500 mb-4 transition-all group-hover:scale-110">
-                    <Coins className="w-5 h-5 text-yellow-500" />
+                    <Users className="w-5 h-5 text-yellow-500" />
                   </div>
                   <h4 className="font-extrabold text-white text-sm group-hover:text-yellow-500 transition-colors">
-                    Balcão de Cobranças →
+                    Gerenciar Clientes e Cobranças →
                   </h4>
                   <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                    Cobrar diárias ativas, agrupar faturas pendentes e registrar pagamentos rápidos via WhatsApp.
+                    Pesquise clientes, envie mensagens de cobrança no WhatsApp e mude prazos contratuais.
                   </p>
                 </button>
 
                 {/* Atalho 2: Cadastrar */}
                 <button
                   type="button"
-                  onClick={() => setActiveTab("add_client")}
+                  onClick={() => setShowAddModal(true)}
                   className="group block text-left bg-zinc-900/40 hover:bg-zinc-850/60 border border-zinc-850/80 hover:border-yellow-500/40 p-5 rounded-2xl transition-all shadow-md hover:shadow-yellow-500/5 cursor-pointer relative"
                 >
                   <div className="w-10 h-10 rounded-xl bg-yellow-500/10 border border-yellow-500/25 flex items-center justify-center text-yellow-500 mb-4 transition-all group-hover:scale-110">
-                    <Users className="w-5 h-5 text-yellow-500" />
+                    <Plus className="w-5 h-5 text-yellow-500" />
                   </div>
                   <h4 className="font-extrabold text-white text-sm group-hover:text-yellow-500 transition-colors">
-                    Ficha de Novo Cliente →
+                    Cadastrar Novo Cliente →
                   </h4>
                   <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                    Iniciar um microcrédito e criar um contrato parametrizado com diárias automáticas.
+                    Adicione um novo cliente e defina os parâmetros do contrato de diárias de forma instantânea.
                   </p>
                 </button>
 
@@ -494,17 +557,14 @@ export default function App() {
                     <Sparkles className="w-5 h-5 text-yellow-500" />
                   </div>
                   <h4 className="font-extrabold text-white text-sm group-hover:text-yellow-500 transition-colors">
-                    Controle de Caixa →
+                    Relatório Financeiro Inteligente →
                   </h4>
                   <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                    Ver balanços, relatórios, ciclos fiscais de domingo a domingo e gráficos analíticos de lucros.
+                    Consulte projeções semanais, faturamento por meses de referência e gráficos analíticos.
                   </p>
                 </button>
               </div>
             </div>
-
-            {/* SEÇÃO INTEGRATIVE SUPABASE PLATFORM INSTRUCTION */}
-            <SupabaseSetupHelper />
           </div>
         )}
 
@@ -531,19 +591,30 @@ export default function App() {
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
                   <input
                     type="text"
-                    placeholder="Pesquisar cobrança por nome ou WhatsApp..."
+                    placeholder="Pesquisar cliente por nome ou celular..."
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
                     className="w-full bg-zinc-950/60 border border-zinc-800/80 focus:border-yellow-500 focus:outline-none rounded-xl py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-650 transition-colors"
                   />
                 </div>
-                <button
-                  onClick={() => setShowQuickCollectModal(true)}
-                  className="px-4 py-2.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/10 flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
-                >
-                  <Send className="w-4 h-4 text-zinc-950" />
-                  Cobrança Rápida (Todos)
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="flex-1 sm:flex-initial px-4 py-2.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/10 flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                    title="Adicionar Novo Cliente e Contrato"
+                  >
+                    <Plus className="w-4 h-4 text-zinc-950" />
+                    <span>Cadastrar Cliente</span>
+                  </button>
+                  <button
+                    onClick={() => setShowQuickCollectModal(true)}
+                    className="flex-1 sm:flex-initial px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-100 border border-zinc-850 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                    title="Enviar cobrança para todos os atrasados"
+                  >
+                    <Send className="w-4 h-4 text-yellow-500" />
+                    <span>Cobrança Rápida</span>
+                  </button>
+                </div>
               </div>
 
               {/* Status Categorizer Badges */}
@@ -606,39 +677,6 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB 2: CADASTRAR CLIENTE (Embedded Premium Tab Form) */}
-        {activeTab === "add_client" && (
-          <div className="max-w-xl mx-auto space-y-5 animate-fade-in">
-            {/* VOLTAR BUTTON */}
-            <div className="flex justify-start">
-              <button
-                type="button"
-                onClick={() => setActiveTab("home")}
-                className="py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-yellow-500 font-bold text-xs rounded-xl border border-zinc-850 flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-black/40"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Voltar para Tela Inicial</span>
-              </button>
-            </div>
-
-            <div className="bg-zinc-950/20 border border-zinc-850/80 p-5 sm:p-6 rounded-2xl">
-              <div className="flex items-center gap-2 pb-4 mb-4 border-b border-zinc-900 select-none">
-                <Users className="w-5 h-5 text-yellow-500" />
-                <div>
-                  <h3 className="font-extrabold text-xs sm:text-sm text-zinc-100 uppercase tracking-wider">Ficha de Cadastro de Cliente</h3>
-                  <p className="text-[10px] text-zinc-500">Configure os parâmetros do contrato de diárias de forma instantânea.</p>
-                </div>
-              </div>
-              <ClientForm
-                isEmbeddedInTab={true}
-                onSubmit={async (data) => {
-                  await handleAddNewClient(data);
-                  setActiveTab("collections"); // Auto redirect to Active collection desk
-                }}
-              />
-            </div>
-          </div>
-        )}
 
         {/* TAB 3: CONTROLE FINANCEIRO & DEEXPANSÃO PROJECTIONS */}
         {activeTab === "financial_control" && stats && (
