@@ -108,16 +108,10 @@ export const ClientCard: React.FC<ClientCardProps> = ({
 
   const [selectedUnpaidDates, setSelectedUnpaidDates] = React.useState<string[]>([]);
 
-  // Automatically pre-select late dates or the first single upcoming unpaid date
+  // Automatically pre-select only the single next unpaid date ("somente o do dia")
   React.useEffect(() => {
     if (activeLoan && unpaidSchedules.length > 0) {
-      const today = getTodayStr();
-      const lateDates = unpaidSchedules.filter(d => d <= today);
-      if (lateDates.length > 0) {
-        setSelectedUnpaidDates(lateDates);
-      } else {
-        setSelectedUnpaidDates([unpaidSchedules[0]]);
-      }
+      setSelectedUnpaidDates([unpaidSchedules[0]]);
     } else {
       setSelectedUnpaidDates([]);
     }
