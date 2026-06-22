@@ -147,9 +147,9 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const handleWhatsAppCharge = () => {
     if (!activeLoan) return;
     const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
-    const dateFormatted = referenceDate 
+    const dateFormatted = paidCount > 0 
       ? formatFriendlyDate(referenceDate) 
-      : formatFriendlyDate(activeLoan.startDate);
+      : "Nenhuma diária paga";
 
     // List of selected dates
     const selectedDaysText = selectedUnpaidDates.length > 0
@@ -170,7 +170,7 @@ Passando para lembrar das parcelas diárias pendentes do seu contrato no valor i
 
 📊 *Seu Resumo Geral:*
 Progresso do Contrato: *${paidCount} de ${totalDays} pagas*
-Sua última diária acumulada foi em: *${dateFormatted}*
+Sua última diária paga foi em: *${dateFormatted}*
 
 🗓️ *Parcelas em aberto selecionadas para acerto:*
 ${selectedDaysText}
@@ -448,7 +448,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
           <div className="flex flex-col justify-between p-2 bg-zinc-950/20 rounded-xl border border-zinc-900">
             <span className="text-[8px] text-zinc-550 uppercase font-bold tracking-wider flex items-center gap-1">
               <CalendarDays className="w-3.5 h-3.5 text-zinc-500" />
-              Início do Contrato
+              Data do Empréstimo
             </span>
             <span className="font-mono text-[11px] font-bold text-zinc-300 block mt-1">
               {activeLoan.startDate ? formatFriendlyDate(activeLoan.startDate) : "-"}
@@ -459,7 +459,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
           <div className="flex flex-col justify-between p-2 bg-zinc-950/50 rounded-xl border border-zinc-800/80">
             <span className="text-[8px] text-zinc-500 uppercase font-bold tracking-wider flex items-center gap-1">
               <CalendarDays className="w-3.5 h-3.5 text-yellow-500/60" />
-              Última Atu.
+              Última Diária Paga
             </span>
             <span 
               className={`font-mono text-[11px] font-bold block mt-1 ${
@@ -470,7 +470,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                     : "text-zinc-300"
               }`}
             >
-              {referenceDate ? formatFriendlyDate(referenceDate) : formatFriendlyDate(activeLoan.startDate)}
+              {paidCount > 0 ? formatFriendlyDate(referenceDate) : "Nenhuma paga"}
             </span>
           </div>
         </div>

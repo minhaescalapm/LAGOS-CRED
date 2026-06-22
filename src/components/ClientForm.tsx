@@ -566,7 +566,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
 
                   {/* Data Inicial */}
                   <div>
-                    <label className="text-[10px] text-zinc-400 font-medium block mb-1">Data Inicial (Cobrança)</label>
+                    <label className="text-[10px] text-zinc-400 font-medium block mb-1">Data do Empréstimo (Liberação)</label>
                     <input 
                       type="date"
                       value={startDate}
