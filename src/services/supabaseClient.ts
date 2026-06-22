@@ -17,7 +17,39 @@ const rawKey =
   FALLBACK_KEY;
 
 // Cleans the URL to prevent "PGRST125: Invalid path specified in request URL"
-export const sanitizeSupabaseUrl = (url: string): string => {
+export const sanitizeSupabaseKey = (key: string): string => {
+  if (!key) return "";
+  return key.trim().replace(/^['"]|['"]$/g, "").trim();
+};
+
+export const extractRefFromKey = (key: string): string => {
+  if (!key) return "";
+  const cleanedKey = sanitizeSupabaseKey(key);
+  try {
+    const parts = cleanedKey.split(".");
+    if (parts.length === 3) {
+      const payloadBase64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const decodedPayload = atob(payloadBase64);
+      const parsed = JSON.parse(decodedPayload);
+      if (parsed && typeof parsed.ref === "string" && parsed.ref.length > 0) {
+        return parsed.ref.trim();
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to extract project ref from key:", e);
+  }
+  return "";
+};
+
+export const sanitizeSupabaseUrl = (url: string, key?: string): string => {
+  // If we can extract the exact project subdomain from the key, prefer that!
+  if (key) {
+    const ref = extractRefFromKey(key);
+    if (ref) {
+      return `https://${ref}.supabase.co`;
+    }
+  }
+
   if (!url) return "";
   let cleanUrl = url.trim();
   
@@ -48,13 +80,8 @@ export const sanitizeSupabaseUrl = (url: string): string => {
   return cleanUrl;
 };
 
-export const sanitizeSupabaseKey = (key: string): string => {
-  if (!key) return "";
-  return key.trim().replace(/^['"]|['"]$/g, "").trim();
-};
-
-const supabaseUrl = sanitizeSupabaseUrl(rawUrl);
 const supabaseAnonKey = sanitizeSupabaseKey(rawKey);
+const supabaseUrl = sanitizeSupabaseUrl(rawUrl, supabaseAnonKey);
 
 export const isSupabaseConfigured = (): boolean => {
   return !!(supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith("http"));
@@ -90,8 +117,8 @@ export const getSupabaseDiagnostics = async (): Promise<DiagnosticResult> => {
     envVar.VITE_SUPABASE_AN || 
     FALLBACK_KEY;
 
-  const cleanUrl = sanitizeSupabaseUrl(urlVar);
   const cleanKey = sanitizeSupabaseKey(keyVar);
+  const cleanUrl = sanitizeSupabaseUrl(urlVar, cleanKey);
 
   const maskString = (str: string) => {
     if (!str) return "Vazio / Não configurado";
