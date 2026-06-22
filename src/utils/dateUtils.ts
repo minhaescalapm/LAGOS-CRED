@@ -27,24 +27,9 @@ export function formatLocalDate(date: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// Get standard today date string "YYYY-MM-DD"
 export function getTodayStr(): string {
-  // Respecting the current local time injected: 2026-06-19
-  // Since we operate under a specific metadata context, we can detect if we use a specific date or system date.
-  // We'll initialize today corresponding to 2026-06-19 if desired, or let it fall back to actual current date.
-  // Let's check: The local time metadata says "2026-06-19T14:00:07-07:00". Let's initialize mock data on this date so it looks alive!
   const now = new Date();
-  
-  // If we are in the development context, let's hardcode today as 2026-06-19 or use the actual system clock.
-  // We can let it use the current system date but offset to the simulated year 2026 to stay highly realistic.
-  // Actually, let's return "2026-06-19" as a base or the real system date.
-  // Rather, we'll parse the Date, but since user requests PWA, using new Date() works dynamically!
-  // However, to ensure all mock data lines up with June 19, 2026, we can let getTodayStr() return "2026-06-19"
-  // or a reactive Date if they are in the browser.
-  // Let's use 2026-06-19 as default if the system clock returns something else, or use a reliable fallback.
-  // Let's use the actual local time provided in the metadata!
-  const d = new Date("2026-06-19T14:00:00");
-  return formatLocalDate(d);
+  return formatLocalDate(now);
 }
 
 // Format "YYYY-MM-DD" to friendly format "DD/MM/YYYY"
@@ -68,6 +53,48 @@ export function addDays(dateStr: string, days: number): string {
   const date = parseLocalDate(dateStr);
   date.setDate(date.getDate() + days);
   return formatLocalDate(date);
+}
+
+export function isSunday(dateStr: string): boolean {
+  if (!dateStr) return false;
+  const date = parseLocalDate(dateStr);
+  return date.getDay() === 0;
+}
+
+export function isSaturday(dateStr: string): boolean {
+  if (!dateStr) return false;
+  const date = parseLocalDate(dateStr);
+  return date.getDay() === 6;
+}
+
+export function getElapsedDaysExcludingSundays(startDateStr: string, endDateStr: string): number {
+  if (!startDateStr || !endDateStr || startDateStr > endDateStr) return 0;
+  let count = 0;
+  let current = startDateStr;
+  while (current <= endDateStr) {
+    if (!isSunday(current)) {
+      count++;
+    }
+    current = addDays(current, 1);
+  }
+  return count;
+}
+
+export function getRetroactiveStartDate(endDateStr: string, paidCount: number): string {
+  if (paidCount <= 0) return endDateStr;
+  let currentRef = endDateStr;
+  let count = 0;
+  let tempDate = endDateStr;
+  while (count < paidCount) {
+    if (!isSunday(tempDate)) {
+      count++;
+      if (count === paidCount) {
+        return tempDate;
+      }
+    }
+    tempDate = addDays(tempDate, -1);
+  }
+  return tempDate;
 }
 
 // Calculate days difference between dateStr1 and dateStr2 (dateStr1 - dateStr2)

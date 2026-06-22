@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { ClientWithLoanDetails } from "../types";
 import { AlertCircle, CheckCircle, Smartphone, Copy, Pencil, Trash2, Send } from "lucide-react";
 import { formatFriendlyDate } from "../utils/dateUtils";
@@ -11,6 +11,7 @@ interface AlertsSectionProps {
 }
 
 export function AlertsSection({ clientsWithLoans, onOpenPixModal, onEditClient, onDeleteClient }: AlertsSectionProps) {
+  const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
   // Filter delayed clients (daysBehind > 0 or isDelayed)
   const delayedClients = clientsWithLoans.filter(c => c.isDelayed && c.activeLoan);
 
@@ -77,24 +78,43 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                       -{client.daysBehind}x
                     </span>
                     <div className="flex items-center gap-1 ml-1">
-                      <button
-                        onClick={() => onEditClient?.(client)}
-                        className="p-1 text-zinc-500 hover:text-yellow-500 rounded transition-colors cursor-pointer"
-                        title="Editar devedor"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (window.confirm(`Tem certeza que deseja remover o cliente ${client.client.name} e todos os seus registros?`)) {
-                            onDeleteClient?.(client.client.id);
-                          }
-                        }}
-                        className="p-1 text-zinc-500 hover:text-red-500 rounded transition-colors cursor-pointer"
-                        title="Excluir devedor"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      {deletingClientId === client.client.id ? (
+                        <div className="flex items-center gap-1 bg-red-950/40 border border-red-500/30 rounded px-1 py-0.5 animate-fade-in select-none">
+                          <span className="text-[8px] text-red-400 font-extrabold uppercase mr-1">Excluir?</span>
+                          <button
+                            onClick={() => {
+                              onDeleteClient?.(client.client.id);
+                              setDeletingClientId(null);
+                            }}
+                            className="px-1.5 py-0.5 bg-red-600 hover:bg-red-505 text-white font-black text-[9px] rounded cursor-pointer"
+                          >
+                            Sim
+                          </button>
+                          <button
+                            onClick={() => setDeletingClientId(null)}
+                            className="px-1.5 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-black text-[9px] rounded cursor-pointer"
+                          >
+                            Não
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => onEditClient?.(client)}
+                            className="p-1 text-zinc-500 hover:text-yellow-500 rounded transition-colors cursor-pointer"
+                            title="Editar devedor"
+                          >
+                            <Pencil className="w-3" />
+                          </button>
+                          <button
+                            onClick={() => setDeletingClientId(client.client.id)}
+                            className="p-1 text-zinc-500 hover:text-red-500 rounded transition-colors cursor-pointer"
+                            title="Excluir devedor"
+                          >
+                            <Trash2 className="w-3" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-400 font-mono">

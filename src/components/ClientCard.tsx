@@ -11,9 +11,11 @@ import {
   Check,
   Trash2,
   Pencil,
-  Send
+  Send,
+  Sliders,
+  CalendarDays as CalendarDaysIcon
 } from "lucide-react";
-import { formatFriendlyDate, addDays, getTodayStr } from "../utils/dateUtils";
+import { formatFriendlyDate, addDays, getTodayStr, getRetroactiveStartDate, getElapsedDaysExcludingSundays } from "../utils/dateUtils";
 
 interface ClientCardProps {
   clientDetail: ClientWithLoanDetails;
@@ -21,6 +23,7 @@ interface ClientCardProps {
   onOpenPixModal: (clientName: string) => void;
   onDeleteClient: (clientId: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
+  onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => void;
 }
 
 export const ClientCard: React.FC<ClientCardProps> = ({ 
@@ -28,14 +31,48 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   onRegisterPayment, 
   onOpenPixModal,
   onDeleteClient,
-  onEditClient
+  onEditClient,
+  onAdjustLoan
 }) => {
   const { client, activeLoan, paidCount, totalDays, referenceDate, isDelayed, daysBehind } = clientDetail;
 
   const [isExpandingPay, setIsExpandingPay] = useState(false);
   const [payDaysCount, setPayDaysCount] = useState<number>(1);
   const [paymentDate, setPaymentDate] = useState(() => getTodayStr());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
+  // States for Contract Adjustments
+  const [isAdjusting, setIsAdjusting] = useState(false);
+  const [adjustedPaidCount, setAdjustedPaidCount] = useState(paidCount);
+  const [adjustedStartDate, setAdjustedStartDate] = useState(() => activeLoan?.startDate || getTodayStr());
+
+  // Synchronize when parent triggers update/save
+  React.useEffect(() => {
+    setAdjustedPaidCount(paidCount);
+  }, [paidCount]);
+
+  React.useEffect(() => {
+    if (activeLoan) {
+      setAdjustedStartDate(activeLoan.startDate);
+    }
+  }, [activeLoan?.startDate]);
+
+  const handleAdjustmentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeLoan || !onAdjustLoan) return;
+    try {
+      await onAdjustLoan(activeLoan.id, adjustedPaidCount, adjustedStartDate);
+      setIsAdjusting(false);
+    } catch (err) {
+      console.error("Erro ao reajustar parcelas e data:", err);
+    }
+  };
+
+  // Smart Calculations for instant preview & single-button adjustments
+  const computedRetroStartDate = activeLoan ? getRetroactiveStartDate(getTodayStr(), adjustedPaidCount) : getTodayStr();
+  const elapsedDaysBack = activeLoan ? getElapsedDaysExcludingSundays(adjustedStartDate, getTodayStr()) : 0;
+  const expectedPaidCount = activeLoan ? Math.max(0, Math.min(elapsedDaysBack, totalDays)) : 0;
+
   // Show temporary Whatsapp Button for the most recent payload
   const [showWhatsappReceipt, setShowWhatsappReceipt] = useState(false);
   const [lastReceiptDetails, setLastReceiptDetails] = useState<{ x: number; y: number } | null>(null);
@@ -80,26 +117,45 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
         <div>
           <div className="flex justify-between items-start">
             <h4 className="font-bold text-white text-xs sm:text-sm">{client.name}</h4>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => onEditClient?.(clientDetail)}
-                className="p-1 text-zinc-550 hover:text-yellow-500 rounded transition-colors cursor-pointer"
-                title="Editar cliente"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => {
-                  if (window.confirm(`Tem certeza que deseja remover o cliente ${client.name}? Todos os registros serão apagados.`)) {
+            {showDeleteConfirm ? (
+              <div className="flex items-center gap-1 bg-red-950/40 border border-red-500/30 rounded p-1 animate-fade-in select-none">
+                <span className="text-[8px] text-red-400 font-extrabold uppercase mr-1">Deletar?</span>
+                <button
+                  type="button"
+                  onClick={() => {
                     onDeleteClient(client.id);
-                  }
-                }}
-                className="p-1 text-zinc-550 hover:text-red-500 rounded transition-colors cursor-pointer"
-                title="Excluir cliente"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="px-1.5 py-0.5 bg-red-600 hover:bg-red-505 text-white font-black text-[9px] rounded-md cursor-pointer transition-all"
+                >
+                  Sim
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-1.5 py-0.5 bg-zinc-850 hover:bg-zinc-800 text-zinc-300 font-black text-[9px] rounded-md cursor-pointer transition-all"
+                >
+                  Não
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onEditClient?.(clientDetail)}
+                  className="p-1 text-zinc-550 hover:text-yellow-500 rounded transition-colors cursor-pointer"
+                  title="Editar cliente"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="p-1 text-zinc-550 hover:text-red-500 rounded transition-colors cursor-pointer"
+                  title="Excluir cliente"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
           <p className="text-zinc-500 text-[11px] mt-1 font-mono">
             Tel: {client.phone.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")}
@@ -193,26 +249,61 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
             )}
 
             {/* Quick edit & delete client */}
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={() => onEditClient?.(clientDetail)}
-                className="p-1 hover:bg-zinc-800/60 text-zinc-650 hover:text-yellow-500 rounded-lg transition-all cursor-pointer"
-                title="Editar cliente"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => {
-                  if (window.confirm(`Tem certeza que deseja apagar o cliente ${client.name} e seu contrato ativo?`)) {
+            {showDeleteConfirm ? (
+              <div className="flex items-center gap-1 bg-red-950/40 border border-red-500/30 rounded p-1 animate-fade-in select-none">
+                <span className="text-[8px] text-red-400 font-extrabold uppercase mr-1">Deletar?</span>
+                <button
+                  type="button"
+                  onClick={() => {
                     onDeleteClient(client.id);
-                  }
-                }}
-                className="p-1 hover:bg-zinc-800/60 text-zinc-650 hover:text-red-500 rounded-lg transition-all cursor-pointer"
-                title="Excluir cliente"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="px-1.5 py-0.5 bg-red-600 hover:bg-red-505 text-white font-black text-[9px] rounded-md cursor-pointer transition-all"
+                >
+                  Sim
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-1.5 py-0.5 bg-zinc-850 hover:bg-zinc-800 text-zinc-300 font-black text-[9px] rounded-md cursor-pointer transition-all"
+                >
+                  Não
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 shrink-0">
+                {activeLoan && (
+                  <button
+                    onClick={() => {
+                      setIsAdjusting(!isAdjusting);
+                      setIsExpandingPay(false); // Mutual exclusion
+                    }}
+                    className={`p-1 rounded-lg transition-all cursor-pointer ${
+                      isAdjusting 
+                        ? "bg-amber-500/10 text-amber-500" 
+                        : "hover:bg-zinc-800/60 text-zinc-650 hover:text-amber-500"
+                    }`}
+                    title="Reajustar parcelas e data de início do contrato"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  onClick={() => onEditClient?.(clientDetail)}
+                  className="p-1 hover:bg-zinc-800/60 text-zinc-650 hover:text-yellow-500 rounded-lg transition-all cursor-pointer"
+                  title="Editar cliente"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="p-1 hover:bg-zinc-800/60 text-zinc-650 hover:text-red-500 rounded-lg transition-all cursor-pointer"
+                  title="Excluir cliente"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -334,6 +425,27 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                   +
                 </button>
               </div>
+              {/* Preset buttons */}
+              <div className="flex gap-1 mt-1.5">
+                {[1, 2, 3, 5, 10].map(n => {
+                  const maxPossible = totalDays - paidCount;
+                  if (n > maxPossible) return null;
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setPayDaysCount(n)}
+                      className={`flex-1 text-[9px] font-extrabold py-1 rounded transition-all cursor-pointer ${
+                        payDaysCount === n
+                          ? "bg-yellow-500 text-zinc-950"
+                          : "bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400"
+                      }`}
+                    >
+                      {n}x
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Simulated date input */}
@@ -369,8 +481,109 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
         </form>
       )}
 
+      {/* CONTRACT ADJUSTMENT PANEL */}
+      {isAdjusting && activeLoan && (
+        <form onSubmit={handleAdjustmentSubmit} className="bg-zinc-950/90 border border-amber-500/30 p-3.5 rounded-xl space-y-4 animate-slide-down">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest block flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-amber-400" />
+              Reajustar Contrato
+            </span>
+            <button 
+              type="button" 
+              onClick={() => setIsAdjusting(false)}
+              className="text-[10px] text-zinc-500 hover:text-zinc-350 font-bold"
+            >
+              Fechar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            {/* Parcelas Jás Pagas */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Parcelas já pagas</label>
+              <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden h-[34px]">
+                <button
+                  type="button"
+                  onClick={() => setAdjustedPaidCount(p => Math.max(0, p - 1))}
+                  className="px-2.5 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-white font-black cursor-pointer text-xs"
+                >
+                  -
+                </button>
+                <input
+                  type="number"
+                  min="0"
+                  max={totalDays}
+                  value={adjustedPaidCount}
+                  onChange={e => setAdjustedPaidCount(Math.min(totalDays, Math.max(0, Number(e.target.value) || 0)))}
+                  className="w-full text-center bg-transparent text-xs font-mono font-bold text-white border-none focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-extrabold"
+                />
+                <button
+                  type="button"
+                  onClick={() => setAdjustedPaidCount(p => Math.min(totalDays, p + 1))}
+                  className="px-2.5 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-white font-black cursor-pointer text-xs"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            {/* Data Inicial */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Data Início Contrato</label>
+              <input
+                type="date"
+                value={adjustedStartDate}
+                onChange={e => setAdjustedStartDate(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2 text-xs text-white font-mono focus:outline-none cursor-pointer h-[34px] font-bold"
+              />
+            </div>
+          </div>
+
+          {/* CÁLCULO INTELIGENTE / AUTOMÁTICO */}
+          <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-850 space-y-3.5 text-[10px] font-mono leading-relaxed">
+            <span className="text-[8px] font-extrabold text-zinc-400 block uppercase tracking-widest border-b border-zinc-800/80 pb-1">Recursos Retroativos Inteligentes</span>
+            
+            {/* Retroactive Date Calculation button */}
+            <div className="space-y-1.5">
+              <p className="text-zinc-400">
+                Para ficar <strong className="text-emerald-400 font-extrabold uppercase">EM DIA</strong> hoje com <span className="text-white font-extrabold">{adjustedPaidCount} parcelas pagas</span>, o contrato começaria em: <span className="text-yellow-500 font-extrabold">{formatFriendlyDate(computedRetroStartDate)}</span>.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAdjustedStartDate(computedRetroStartDate)}
+                className="w-full py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/25 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors"
+              >
+                📥 Aplicar Data Retroativa ({formatFriendlyDate(computedRetroStartDate)})
+              </button>
+            </div>
+
+            {/* Retroactive Paid Count Calculation button */}
+            <div className="space-y-1.5 border-t border-zinc-800/80 pt-3">
+              <p className="text-zinc-400">
+                Para ficar <strong className="text-emerald-400 font-extrabold uppercase">EM DIA</strong> hoje com início em <span className="text-white font-extrabold">{formatFriendlyDate(adjustedStartDate)}</span>, o total pago deveria ser: <span className="text-yellow-500 font-extrabold">{expectedPaidCount} parcelas</span>.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAdjustedPaidCount(expectedPaidCount)}
+                className="w-full py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/25 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors"
+              >
+                📥 Ajustar Parcelas Pagas para {expectedPaidCount}x
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="w-full py-2.5 bg-amber-500 hover:bg-amber-405 text-zinc-950 font-black text-xs rounded-lg shadow-lg hover:shadow-amber-500/15 transition-all cursor-pointer uppercase tracking-wider"
+          >
+            Confirmar Reajuste
+          </button>
+        </form>
+      )}
+
       {/* QUICK ACTIONS BUTTONS */}
-      {!isExpandingPay && (
+      {!isExpandingPay && !isAdjusting && (
         <div className="grid grid-cols-1 gap-2 select-none">
           {/* BOTÃO RECEBER PAGAMENTO */}
           {!isFullyPaid ? (
@@ -378,6 +591,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
               onClick={() => {
                 setPayDaysCount(1);
                 setIsExpandingPay(!isExpandingPay);
+                setIsAdjusting(false); // Mutual exclusion
               }}
               className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg hover:shadow-yellow-500/10 transition-all cursor-pointer"
             >

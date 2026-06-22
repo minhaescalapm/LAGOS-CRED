@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { dbService } from "./services/dbService";
-import { ClientWithLoanDetails, FinancialStats } from "./types";
+import { ClientWithLoanDetails, FinancialStats, Loan, Payment } from "./types";
 import { getTodayStr, formatFriendlyDate } from "./utils/dateUtils";
 import { FinancialSummary } from "./components/FinancialSummary";
 import { StatsSection } from "./components/StatsSection";
 import { AlertsSection } from "./components/AlertsSection";
 import { ClientForm } from "./components/ClientForm";
 import { ClientCard } from "./components/ClientCard";
+import { ClientsDirectory } from "./components/ClientsDirectory";
+import { FinancialControl } from "./components/FinancialControl";
+import { QuickCollectModal } from "./components/QuickCollectModal";
 import { 
   Plus, 
   Search, 
@@ -22,7 +25,9 @@ import {
   Download,
   RotateCcw,
   Trash2,
-  Loader2
+  Loader2,
+  Coins,
+  Send
 } from "lucide-react";
 
 export default function App() {
@@ -32,9 +37,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   // Filter & Search states
-  const [activeTab, setActiveTab] = useState<"dashboard" | "clients">("dashboard");
+  const [activeTab, setActiveTab] = useState<"collections" | "add_client" | "financial_control">("collections");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "NO_LOAN">("ALL");
+  const [allLoans, setAllLoans] = useState<Loan[]>([]);
+  const [allPayments, setAllPayments] = useState<Payment[]>([]);
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -45,17 +52,22 @@ export default function App() {
   });
   const [pixCopied, setPixCopied] = useState(false);
   const [showPwaGuide, setShowPwaGuide] = useState(false);
+  const [showQuickCollectModal, setShowQuickCollectModal] = useState(false);
 
   // Sync state from LocalStorage or Supabase on mount and state changes
   const refreshData = async () => {
     setIsLoading(true);
     try {
-      const [list, financialStats] = await Promise.all([
+      const [list, financialStats, fetchedLoans, fetchedPayments] = await Promise.all([
         dbService.getClientDetailsList(simulationDate),
-        dbService.getFinancialStats(simulationDate)
+        dbService.getFinancialStats(simulationDate),
+        dbService.getLoans ? dbService.getLoans() : Promise.resolve([]),
+        dbService.getPayments ? dbService.getPayments() : Promise.resolve([])
       ]);
       setClientsWithLoans(list);
       setStats(financialStats);
+      setAllLoans(fetchedLoans as Loan[]);
+      setAllPayments(fetchedPayments as Payment[]);
     } catch (err) {
       console.error("Erro ao carregar dados financeiros:", err);
     } finally {
@@ -178,14 +190,29 @@ export default function App() {
     }
   };
 
+  // Handle Adjusting Loan start date and paid count directly
+  const handleAdjustLoan = async (loanId: string, targetPaidCount: number, targetStartDate: string) => {
+    setIsLoading(true);
+    try {
+      await dbService.adjustLoanPaymentsAndStartDate(loanId, targetPaidCount, targetStartDate);
+      await refreshData();
+    } catch (err: any) {
+      console.error("Erro ao reajustar contrato:", err);
+      alert("Erro ao reajustar contrato: " + (err.message || "Tente novamente."));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle client delete with confirmation cascade
   const handleDeleteClient = async (clientId: string) => {
     setIsLoading(true);
     try {
       await dbService.deleteClient(clientId);
       await refreshData();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Erro ao deletar cliente:", err);
+      alert("Erro ao deletar cliente: " + (err.message || "Por favor, tente novamente."));
     } finally {
       setIsLoading(false);
     }
@@ -303,7 +330,7 @@ export default function App() {
 
             {/* Iniciar Operação / Novo cliente */}
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => setActiveTab("add_client")}
               disabled={isLoading}
               className="px-3 py-1.5 md:px-4 md:py-2 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-405 hover:to-amber-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/10 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
@@ -322,7 +349,7 @@ export default function App() {
           <div className="flex items-center gap-2.5">
             <Info className="w-4.5 h-4.5 text-yellow-500 shrink-0" />
             <p className="leading-normal">
-              Controle ativo operando em horário oficial dia do sistema: <strong className="text-zinc-200 font-mono">19/06/2026</strong>. Todas as movimentações salvam automaticamente.
+              Controle ativo operando em horário oficial dia do sistema: <strong className="text-zinc-200 font-mono">{formatFriendlyDate(simulationDate)}</strong>. Todas as movimentações salvam automaticamente.
             </p>
           </div>
           <div className="flex items-center gap-1.5 bg-zinc-900/60 px-2.5 py-1 rounded-lg border border-zinc-850">
@@ -337,71 +364,77 @@ export default function App() {
         {stats && <FinancialSummary stats={stats} />}
 
         {/* 4. TAB NAVIGATION TOGGLES ON SINGLE PAGE (Meets Single-View Guidelines) */}
-        <div id="navigation-tabs" className="flex border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
+        <div id="navigation-tabs" className="grid grid-cols-3 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
           <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`flex-1 py-3 text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
-              activeTab === "dashboard"
+            onClick={() => setActiveTab("collections")}
+            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === "collections"
                 ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
+            title="Sessão rápida para cobrança de diárias no WhatsApp"
           >
-            <Sparkles className="w-4 h-4" />
-            Painel Executivo & Estatísticas
+            <Coins className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="hidden xs:inline">Cobranças Ativas</span>
+            <span className="xs:hidden">Cobranças</span>
           </button>
+
           <button
-            onClick={() => setActiveTab("clients")}
-            className={`flex-1 py-3 text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
-              activeTab === "clients"
+            onClick={() => setActiveTab("add_client")}
+            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === "add_client"
                 ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
                 : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
-            <Users className="w-4 h-4" />
-            Carteira de Clientes ({clientsWithLoans.length})
+            <Users className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="hidden xs:inline">Cadastrar Cliente</span>
+            <span className="xs:hidden">Cadastrar</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("financial_control")}
+            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === "financial_control"
+                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="hidden xs:inline">Controle Financeiro</span>
+            <span className="xs:hidden">Financeiro</span>
           </button>
         </div>
 
-        {/* TAB 1: VISÃO GERAL (STATS & ALERTS SPLIT GRID) */}
-        {activeTab === "dashboard" && stats && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 md:gap-6">
-            {/* STATS SECTION (Months and Future Projections) */}
-            <div className="lg:col-span-7">
-              <StatsSection stats={stats} />
-            </div>
-
-            {/* ALERTS SECTION (Urgent delays) */}
-            <div className="lg:col-span-5">
-              <AlertsSection 
-                clientsWithLoans={clientsWithLoans} 
-                onOpenPixModal={(clName) => setPixModal({ isOpen: true, clientName: clName })}
-                onEditClient={(clientDetail) => setEditingClient(clientDetail)}
-                onDeleteClient={handleDeleteClient}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: CLIENTES & COBRANÇA DIRECTORY FILTER GRID */}
-        {activeTab === "clients" && (
-          <div className="space-y-5">
+        {/* TAB 1: CLIENTES & COBRANÇA DIRECTORY FILTER GRID (COLLS) */}
+        {activeTab === "collections" && (
+          <div className="space-y-5 animate-fade-in">
             {/* 2A. FILTER CONTROLS BAR */}
-            <div className="flex flex-col md:flex-row gap-3 items-center justify-between select-none">
+            <div className="flex flex-col lg:flex-row gap-3 items-center justify-between select-none">
               
-              {/* Search Field */}
-              <div className="relative w-full md:max-w-md">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input
-                  type="text"
-                  placeholder="Pesquisar cliente por nome ou WhatsApp..."
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full bg-zinc-950/60 border border-zinc-800/80 focus:border-yellow-500 focus:outline-none rounded-xl py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-650 transition-colors"
-                />
+              {/* Search & Bulk Trigger Field */}
+              <div className="flex flex-col sm:flex-row gap-2.5 w-full lg:max-w-xl">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar cobrança por nome ou WhatsApp..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full bg-zinc-950/60 border border-zinc-800/80 focus:border-yellow-500 focus:outline-none rounded-xl py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder-zinc-650 transition-colors"
+                  />
+                </div>
+                <button
+                  onClick={() => setShowQuickCollectModal(true)}
+                  className="px-4 py-2.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/10 flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                >
+                  <Send className="w-4 h-4 text-zinc-950" />
+                  Cobrança Rápida (Todos)
+                </button>
               </div>
 
               {/* Status Categorizer Badges */}
-              <div className="flex flex-wrap gap-1.5 w-full md:w-auto justify-start md:justify-end">
+              <div className="flex flex-wrap gap-1.5 w-full lg:w-auto justify-start lg:justify-end">
                 {[
                   { value: "ALL", label: "Todos" },
                   { value: "DELAYED", label: "Atrasados" },
@@ -429,7 +462,7 @@ export default function App() {
                 <div className="p-4 bg-zinc-900 rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-3 text-zinc-600">
                   <Search className="w-5 h-5 text-yellow-500" />
                 </div>
-                <h3 className="font-semibold text-zinc-300 text-sm">Nenhum cliente encontrado</h3>
+                <h3 className="font-semibold text-zinc-300 text-sm">Nenhuma cobrança encontrada</h3>
                 <p className="text-xs text-zinc-500 mt-1 max-w-[280px] mx-auto">
                   Ajuste o termo de pesquisa ou filtros selecionados para localizar registros correspondentes.
                 </p>
@@ -452,10 +485,45 @@ export default function App() {
                     onOpenPixModal={(clName) => setPixModal({ isOpen: true, clientName: clName })}
                     onDeleteClient={handleDeleteClient}
                     onEditClient={(clientDetail) => setEditingClient(clientDetail)}
+                    onAdjustLoan={handleAdjustLoan}
                   />
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB 2: CADASTRAR CLIENTE (Embedded Premium Tab Form) */}
+        {activeTab === "add_client" && (
+          <div className="max-w-xl mx-auto space-y-5 animate-fade-in">
+            <div className="bg-zinc-950/20 border border-zinc-850/80 p-5 sm:p-6 rounded-2xl">
+              <div className="flex items-center gap-2 pb-4 mb-4 border-b border-zinc-900 select-none">
+                <Users className="w-5 h-5 text-yellow-500" />
+                <div>
+                  <h3 className="font-extrabold text-xs sm:text-sm text-zinc-100 uppercase tracking-wider">Ficha de Cadastro de Cliente</h3>
+                  <p className="text-[10px] text-zinc-500">Configure os parâmetros do contrato de diárias de forma instantânea.</p>
+                </div>
+              </div>
+              <ClientForm
+                isEmbeddedInTab={true}
+                onSubmit={async (data) => {
+                  await handleAddNewClient(data);
+                  setActiveTab("collections"); // Auto redirect to Active collection desk
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: CONTROLE FINANCEIRO & DEEXPANSÃO PROJECTIONS */}
+        {activeTab === "financial_control" && stats && (
+          <div className="animate-fade-in">
+            <FinancialControl
+              clientsWithLoans={clientsWithLoans}
+              stats={stats}
+              allLoans={allLoans}
+              allPayments={allPayments}
+            />
           </div>
         )}
 
@@ -631,7 +699,14 @@ export default function App() {
             </div>
           </div>
         </div>
-      )}
+       )}
+
+      {/* QUICK COLLECT LIST MODAL */}
+      <QuickCollectModal
+        isOpen={showQuickCollectModal}
+        onClose={() => setShowQuickCollectModal(false)}
+        clientsWithLoans={clientsWithLoans}
+      />
 
     </div>
   );

@@ -5,7 +5,10 @@ import {
   getTodayStr, 
   getFinancialCycle, 
   isInSameFinancialCycle, 
-  getLastNFinancialCycles 
+  getLastNFinancialCycles,
+  isSunday,
+  isSaturday,
+  getElapsedDaysExcludingSundays
 } from "../utils/dateUtils";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 
@@ -145,9 +148,12 @@ function mapPayments(supabasePayments: any[]): Payment[] {
   }));
 }
 
-// Initial seeding of localStorage ONLY if empty
-if (!localStorage.getItem(CLIENTS_KEY)) {
-  seedLocalMockData();
+// Initial seeding of localStorage ONLY if empty. Now defaulted to empty array to allow a 100% blank slate.
+if (!localStorage.getItem(CLIENTS_KEY) || !localStorage.getItem("wiped_tests_v2")) {
+  localStorage.setItem(CLIENTS_KEY, JSON.stringify([]));
+  localStorage.setItem(LOANS_KEY, JSON.stringify([]));
+  localStorage.setItem(PAYMENTS_KEY, JSON.stringify([]));
+  localStorage.setItem("wiped_tests_v2", "true");
 }
 
 export const dbService = {
@@ -390,17 +396,27 @@ export const dbService = {
     }
 
     // Allocate the actual count to register (cannot exceed remaining days)
-    const daysToRegister = Math.min(dailyCount, loan.totalDays - countAlreadyPaid);
+    // If client pays on Saturday, add an extra day of credit
+    let extraCount = 0;
+    if (isSaturday(paymentDate)) {
+      extraCount = 1;
+    }
+
+    const daysToRegister = Math.min(dailyCount + extraCount, loan.totalDays - countAlreadyPaid);
     const newPayments: Payment[] = [];
 
     let currentRef = startingRefDate;
     for (let i = 0; i < daysToRegister; i++) {
       currentRef = addDays(currentRef, 1);
+      // Skip Sundays! If currentRef is Sunday, shift it to Monday
+      if (isSunday(currentRef)) {
+        currentRef = addDays(currentRef, 1);
+      }
       const newPayment: Payment = {
         id: `p_${Date.now()}_${i}`,
         loanId,
         paymentDate, // The day the money was actually received
-        referenceDate: currentRef, // The target reference date being cleared: Previous + 1 Day!
+        referenceDate: currentRef, // The target reference date being cleared
         amount: loan.dailyRate
       };
       newPayments.push(newPayment);
@@ -442,21 +458,51 @@ export const dbService = {
           .select("id")
           .eq("client_id", clientId);
         
-        if (!lErr && userLoans) {
+        if (lErr) {
+          console.error("Erro ao buscar empréstimos no Supabase:", lErr);
+          throw new Error(lErr.message);
+        }
+        
+        if (userLoans && userLoans.length > 0) {
           const loanIds = userLoans.map(l => l.id);
-          if (loanIds.length > 0) {
-            await supabase.from("payments").delete().in("loan_id", loanIds);
-            await supabase.from("loans").delete().in("id", loanIds);
+          
+          const { error: pErr } = await supabase
+            .from("payments")
+            .delete()
+            .in("loan_id", loanIds);
+            
+          if (pErr) {
+            console.error("Erro ao deletar pagamentos no Supabase:", pErr);
+            throw new Error(pErr.message);
+          }
+
+          const { error: loanDelErr } = await supabase
+            .from("loans")
+            .delete()
+            .in("id", loanIds);
+
+          if (loanDelErr) {
+            console.error("Erro ao deletar empréstimos no Supabase:", loanDelErr);
+            throw new Error(loanDelErr.message);
           }
         }
-        await supabase.from("clients").delete().eq("id", clientId);
-        return;
-      } catch (err) {
-        console.warn("Supabase connection error on delete:", err);
+        
+        const { error: cliErr } = await supabase
+          .from("clients")
+          .delete()
+          .eq("id", clientId);
+          
+        if (cliErr) {
+          console.error("Erro ao deletar cliente no Supabase:", cliErr);
+          throw new Error(cliErr.message);
+        }
+      } catch (err: any) {
+        console.warn("Erro ao sincronizar deleção no Supabase, limpando localmente:", err);
+        throw err;
       }
     }
 
-    // Fallback local
+    // Fallback/Sync local
     let clients = await this.getClients();
     let loans = await this.getLoans();
     let payments = await this.getPayments();
@@ -470,6 +516,100 @@ export const dbService = {
 
     localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+    localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
+  },
+
+  // ADJUST LOAN PAYMENTS AND START DATE (FLEXIBLE ADJUSTMENT)
+  async adjustLoanPaymentsAndStartDate(
+    loanId: string, 
+    targetPaidCount: number, 
+    targetStartDate: string
+  ): Promise<void> {
+    const loans = await this.getLoans();
+    const loan = loans.find(l => l.id === loanId);
+    if (!loan) {
+      throw new Error("Contrato não encontrado para reajuste.");
+    }
+
+    const validatedPaidCount = Math.min(loan.totalDays, Math.max(0, targetPaidCount));
+
+    // Supabase synchronization
+    if (supabase) {
+      try {
+        const { error: loanErr } = await supabase
+          .from("loans")
+          .update({
+            start_date: targetStartDate
+          })
+          .eq("id", loanId);
+          
+        if (loanErr) throw loanErr;
+
+        // Delete previous payments for this loan
+        const { error: delErr } = await supabase
+          .from("payments")
+          .delete()
+          .eq("loan_id", loanId);
+
+        if (delErr) throw delErr;
+
+        // Insert new reconstructed payments
+        if (validatedPaidCount > 0) {
+          const newPayments = [];
+          let currentRef = addDays(targetStartDate, -1);
+          for (let i = 0; i < validatedPaidCount; i++) {
+            currentRef = addDays(currentRef, 1);
+            if (isSunday(currentRef)) {
+              currentRef = addDays(currentRef, 1);
+            }
+            newPayments.push({
+              id: `p_${Date.now()}_${i}`,
+              loan_id: loanId,
+              payment_date: getTodayStr(),
+              reference_date: currentRef,
+              amount: loan.dailyRate
+            });
+          }
+          const { error: insErr } = await supabase
+            .from("payments")
+            .insert(newPayments);
+
+          if (insErr) throw insErr;
+        }
+      } catch (err: any) {
+        console.warn("Error updating in Supabase, continuing locally:", err);
+      }
+    }
+
+    // Local Storage synchronization
+    // 1. Update loan start date
+    loans.forEach(l => {
+      if (l.id === loanId) {
+        l.startDate = targetStartDate;
+      }
+    });
+    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+
+    // 2. Reconstruct payments
+    let payments = await this.getPayments();
+    payments = payments.filter(p => p.loanId !== loanId);
+
+    if (validatedPaidCount > 0) {
+      let currentRef = addDays(targetStartDate, -1);
+      for (let i = 0; i < validatedPaidCount; i++) {
+        currentRef = addDays(currentRef, 1);
+        if (isSunday(currentRef)) {
+          currentRef = addDays(currentRef, 1);
+        }
+        payments.push({
+          id: `p_${Date.now()}_${i}`,
+          loanId,
+          paymentDate: getTodayStr(),
+          referenceDate: currentRef,
+          amount: loan.dailyRate
+        });
+      }
+    }
     localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
   },
 
@@ -622,8 +762,8 @@ export const dbService = {
         referenceDate = addDays(latestLoan.startDate, -1);
       }
 
-      // Calculate atrasos (Delay)
-      const elapsedDays = differenceInDays(simulationDate, latestLoan.startDate) + 1; 
+      // Calculate atrasos (Delay) - Sundays are skipped
+      const elapsedDays = getElapsedDaysExcludingSundays(latestLoan.startDate, simulationDate); 
       const expectedDaysToPay = Math.max(0, Math.min(elapsedDays, totalDays));
       const daysBehind = Math.max(0, expectedDaysToPay - paidCount);
       const isDelayed = daysBehind >= 1;
