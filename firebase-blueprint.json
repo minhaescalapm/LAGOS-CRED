@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "Client": {
+      "title": "Client",
+      "description": "Represents a client who can take active daily loans",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique client ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the client"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Cleaned telephone number of the client (only numbers)"
+        }
+      },
+      "required": ["id", "name", "phone"]
+    },
+    "Loan": {
+      "title": "Loan",
+      "description": "Represents an active loan/contract defined by parameters and terms",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique loan contract ID"
+        },
+        "clientId": {
+          "type": "string",
+          "description": "The client ID related to this loan"
+        },
+        "amountInvested": {
+          "type": "number",
+          "description": "The initial amount invested/borrowed"
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "The total repayment expected"
+        },
+        "dailyRate": {
+          "type": "number",
+          "description": "Daily parcel repayment amount rate"
+        },
+        "totalDays": {
+          "type": "number",
+          "description": "Total duration in days of this contract"
+        },
+        "startDate": {
+          "type": "string",
+          "description": "Creation/Start date in ISO style YYYY-MM-DD"
+        },
+        "excludeSundays": {
+          "type": "boolean",
+          "description": "Whether repayment schedule is shifted to exclude Sundays (default is true)"
+        }
+      },
+      "required": ["id", "clientId", "amountInvested", "totalAmount", "dailyRate", "totalDays", "startDate"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Represents a daily payment/repayment fraction made towards a loan contract",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique payment record ID"
+        },
+        "loanId": {
+          "type": "string",
+          "description": "The target loan ID being repaid"
+        },
+        "paymentDate": {
+          "type": "string",
+          "description": "Date physical money was received (YYYY-MM-DD)"
+        },
+        "referenceDate": {
+          "type": "string",
+          "description": "Target cycle day reference date cleared (YYYY-MM-DD)"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Amount repaid physically"
+        }
+      },
+      "required": ["id", "loanId", "paymentDate", "referenceDate", "amount"]
+    }
+  },
+  "firestore": {
+    "clients/{clientId}": {
+      "schema": "Client",
+      "description": "Collection storing client profile records securely"
+    },
+    "loans/{loanId}": {
+      "schema": "Loan",
+      "description": "Collection storing loan contracts details"
+    },
+    "payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Collection storing detailed loan repayment transaction receipts"
+    }
+  }
+}

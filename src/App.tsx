@@ -57,6 +57,8 @@ export default function App() {
   });
   const [pixCopied, setPixCopied] = useState(false);
   const [showPwaGuide, setShowPwaGuide] = useState(false);
+  const [showDbGuide, setShowDbGuide] = useState(false);
+  const [sqlCopied, setSqlCopied] = useState(false);
   const [showQuickCollectModal, setShowQuickCollectModal] = useState(false);
 
   // Sync state from LocalStorage or Supabase on mount and state changes
@@ -372,20 +374,46 @@ export default function App() {
       {/* 2. MAIN WORKSPACE SCROLLSTAGE */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
         
-        {/* SMALL ALERT BANNER FOR IFRAME CONTEXT */}
-        <div className="bg-zinc-950/40 border border-zinc-800/80 p-3 rounded-2xl flex items-center justify-between gap-3 text-[11px] text-zinc-400 select-none">
-          <div className="flex items-center gap-2.5">
-            <Info className="w-4.5 h-4.5 text-yellow-500 shrink-0" />
-            <p className="leading-normal">
-              Controle ativo operando em horário oficial dia do sistema: <strong className="text-zinc-200 font-mono">{formatFriendlyDate(simulationDate)}</strong>. Todas as movimentações salvam automaticamente.
-            </p>
+        {/* DYNAMIC CLOUD DATABASE SYNC WARNING / HEALTH STATUS */}
+        <div className="bg-zinc-950/45 border border-zinc-850 p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs text-zinc-400 select-none shadow-md">
+          <div className="flex items-start gap-3">
+            <Info className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="leading-snug text-zinc-300">
+                {dbService.isUsingSupabase() ? (
+                  <>
+                    🚀 <strong className="text-yellow-500">Banco de Dados Online Ativo:</strong> Seus clientes, contratos e repasses estão sincronizados de forma 100% segura na nuvem. Você pode acessar, cadastrar e receber de qualquer celular em tempo real!
+                  </>
+                ) : (
+                  <>
+                    ⚠️ <strong className="text-red-400">Modo de Testes Local (Offline):</strong> Os dados cadastrados ficam salvos <strong>apenas no navegador deste celular</strong>. Se você acessar por outro celular ou limpar o histórico, os dados não estarão lá.
+                  </>
+                )}
+              </p>
+              {!dbService.isUsingSupabase() && (
+                <p className="text-[11px] text-zinc-400 font-medium">
+                  <button 
+                    type="button"
+                    onClick={() => setShowDbGuide(true)} 
+                    className="text-yellow-500 font-extrabold hover:text-yellow-405 underline cursor-pointer inline-flex items-center gap-1 transition-all"
+                  >
+                    <span>Clique aqui para ver como conectar no Supabase Grátis (Qualquer celular acessa) →</span>
+                  </button>
+                </p>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 bg-zinc-900/60 px-2.5 py-1 rounded-lg border border-zinc-850">
-            <span className={`w-1.5 h-1.5 rounded-full ${dbService.isUsingSupabase() ? "bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.4)]" : "bg-zinc-650"} animate-pulse`} />
-            <span className="text-[9px] uppercase font-bold text-zinc-450 tracking-wider font-sans">
-              {dbService.isUsingSupabase() ? "Nuvem Sincronizada" : "Armazenamento Interno"}
+          <button
+            type="button"
+            onClick={() => setShowDbGuide(true)}
+            className="flex items-center gap-2 bg-zinc-950/80 hover:bg-zinc-900 px-3.5 py-2 rounded-xl border border-zinc-850 shrink-0 transition-all cursor-pointer active:scale-98 font-bold text-center self-start md:self-auto"
+            title="Sincronização de Dispositivos e Banco"
+          >
+            <span className={`w-2 h-2 rounded-full ${dbService.isUsingSupabase() ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" : "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"}`} />
+            <span className="text-[10px] uppercase font-black text-zinc-300 tracking-wider font-mono">
+              {dbService.isUsingSupabase() ? "NUVEM CONECTADA" : "MODO LOCAL (OFFLINE)"}
             </span>
-          </div>
+          </button>
         </div>
 
         {/* 3. CORE BALANCES (FINANCIAL SUMMARY) */}
@@ -947,6 +975,193 @@ export default function App() {
           </div>
         </div>
        )}
+
+      {/* MODAL 4: SUPABASE CLOUD DATABASE SYNC USER GUIDE */}
+      {showDbGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/84 backdrop-blur-sm animate-fade-in select-none">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] animate-bounce-in">
+            {/* Header */}
+            <div className="p-4 border-b border-zinc-800 bg-zinc-950/40 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2 text-yellow-500">
+                <Server className="w-4 h-4 text-yellow-500" />
+                <h4 className="font-extrabold text-zinc-100 text-sm">Acessar de Qualquer Celular (Sincronização Nuvem)</h4>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDbGuide(false);
+                  setSqlCopied(false);
+                }}
+                className="text-zinc-400 hover:text-zinc-200 transition-colors p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="p-5 md:p-6 space-y-4 overflow-y-auto scrollbar-thin text-xs text-zinc-350 leading-relaxed">
+              <p className="text-center text-zinc-400 text-[11px]">
+                Atualmente seus dados ficam gravados apenas na memória de dados temporária <strong>deste aparelho</strong>. Para sincronizar em tempo real e acessar de qualquer telefone, você precisa conectar o banco gratuito <strong className="text-yellow-500">Supabase</strong>.
+              </p>
+
+              {/* Step 1 */}
+              <div className="p-3.5 bg-zinc-950/40 border border-zinc-850 rounded-xl space-y-1.5">
+                <span className="text-[10px] font-extrabold text-yellow-500 uppercase tracking-widest block font-sans">Passo 1: Criar conta grátis no Supabase</span>
+                <p className="text-zinc-350 font-sans">
+                  1. Acesse o site <a href="https://supabase.com" target="_blank" rel="noreferrer" className="text-yellow-550 underline font-bold">supabase.com</a> e faça login (pode usar sua conta do GitHub).<br />
+                  2. Clique em <strong className="text-zinc-200">New Project</strong>, dê um nome para o seu projeto (ex: <code className="bg-zinc-900 text-zinc-200 px-1 py-0.5 rounded text-[10px] font-mono">LagosCredit</code>) e defina uma senha do banco.
+                </p>
+              </div>
+
+              {/* Step 2 */}
+              <div className="p-3.5 bg-zinc-950/40 border border-zinc-850 rounded-xl space-y-2">
+                <span className="text-[10px] font-extrabold text-yellow-500 uppercase tracking-widest block font-mono">Passo 2: Criar as tabelas (SQL Editor)</span>
+                <p className="text-zinc-300 font-sans">
+                  No painel esquerdo do Supabase, clique em <strong className="text-zinc-100 font-sans">SQL Editor</strong>, clique em <strong className="text-zinc-100 font-sans">New Query</strong>, cole o texto abaixo e clique no botão verde <strong className="text-emerald-400 font-sans">Run</strong>:
+                </p>
+
+                {/* SQL scripts copying */}
+                <div className="relative font-mono bg-zinc-950 p-2.5 rounded-lg border border-zinc-900 text-[9px] text-zinc-200 max-h-32 overflow-y-auto select-text scrollbar-thin">
+                  <pre className="whitespace-pre-wrap">{`CREATE TABLE IF NOT EXISTS public.clients (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.loans (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
+    amount_invested NUMERIC NOT NULL,
+    total_amount NUMERIC NOT NULL,
+    daily_rate NUMERIC NOT NULL,
+    total_days INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.payments (
+    id TEXT PRIMARY KEY,
+    loan_id TEXT NOT NULL REFERENCES public.loans(id) ON DELETE CASCADE,
+    payment_date TEXT NOT NULL,
+    reference_date TEXT NOT NULL,
+    amount NUMERIC NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.loans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Permitir select para todos" ON public.clients FOR SELECT USING (true);
+CREATE POLICY "Permitir insert para todos" ON public.clients FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir update para todos" ON public.clients FOR UPDATE USING (true);
+CREATE POLICY "Permitir delete para todos" ON public.clients FOR DELETE USING (true);
+
+CREATE POLICY "Permitir select para todos" ON public.loans FOR SELECT USING (true);
+CREATE POLICY "Permitir insert para todos" ON public.loans FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir update para todos" ON public.loans FOR UPDATE USING (true);
+CREATE POLICY "Permitir delete para todos" ON public.loans FOR DELETE USING (true);
+
+CREATE POLICY "Permitir select para todos" ON public.payments FOR SELECT USING (true);
+CREATE POLICY "Permitir insert para todos" ON public.payments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir update para todos" ON public.payments FOR UPDATE USING (true);
+CREATE POLICY "Permitir delete para todos" ON public.payments FOR DELETE USING (true);`}</pre>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sqlCode = `CREATE TABLE IF NOT EXISTS public.clients (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.loans (
+    id TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
+    amount_invested NUMERIC NOT NULL,
+    total_amount NUMERIC NOT NULL,
+    daily_rate NUMERIC NOT NULL,
+    total_days INTEGER NOT NULL,
+    start_date TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.payments (
+    id TEXT PRIMARY KEY,
+    loan_id TEXT NOT NULL REFERENCES public.loans(id) ON DELETE CASCADE,
+    payment_date TEXT NOT NULL,
+    reference_date TEXT NOT NULL,
+    amount NUMERIC NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.loans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Permitir select para todos" ON public.clients FOR SELECT USING (true);
+CREATE POLICY "Permitir insert para todos" ON public.clients FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir update para todos" ON public.clients FOR UPDATE USING (true);
+CREATE POLICY "Permitir delete para todos" ON public.clients FOR DELETE USING (true);
+
+CREATE POLICY "Permitir select para todos" ON public.loans FOR SELECT USING (true);
+CREATE POLICY "Permitir insert para todos" ON public.loans FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir update para todos" ON public.loans FOR UPDATE USING (true);
+CREATE POLICY "Permitir delete para todos" ON public.loans FOR DELETE USING (true);
+
+CREATE POLICY "Permitir select para todos" ON public.payments FOR SELECT USING (true);
+CREATE POLICY "Permitir insert para todos" ON public.payments FOR INSERT WITH CHECK (true);
+CREATE POLICY "Permitir update para todos" ON public.payments FOR UPDATE USING (true);
+CREATE POLICY "Permitir delete para todos" ON public.payments FOR DELETE USING (true);`;
+                    navigator.clipboard.writeText(sqlCode);
+                    setSqlCopied(true);
+                    setTimeout(() => setSqlCopied(false), 2000);
+                  }}
+                  className="w-full py-2 bg-zinc-950 border border-zinc-800 hover:bg-zinc-90 w text-yellow-500 font-extrabold text-[10px] uppercase rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer font-sans"
+                >
+                  {sqlCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{sqlCopied ? "Copiado com Sucesso!" : "Copiar Script SQL do Banco"}</span>
+                </button>
+              </div>
+
+              {/* Step 3 */}
+              <div className="p-3.5 bg-zinc-950/40 border border-zinc-850 rounded-xl space-y-1.5">
+                <span className="text-[10px] font-extrabold text-yellow-500 uppercase tracking-widest block font-sans">Passo 3: Configurar na Barra Superior do AI Studio</span>
+                <p className="text-zinc-300 font-sans">
+                  1. No menu esquerdo do Supabase, vá na engrenagem (<strong className="text-zinc-100">Project Settings</strong>) &gt; <strong className="text-zinc-100">API</strong>.<br />
+                  2. Copie a <strong className="text-yellow-500">Project URL</strong> e a chave <strong className="text-yellow-500">anon public key</strong>.<br />
+                  3. Clique no ícone de engrenagem (<strong className="text-zinc-100 font-sans">Settings</strong>) na barra superior ou configurações desta página do AI Studio (Secrets/Environment Variables).<br />
+                  4. Cadastre os seguintes nomes com seus respectivos valores e salve:<br />
+                  <code className="bg-black/40 text-zinc-100 px-1 py-0.5 rounded text-[10px] font-mono block mt-1.5 p-1 text-center border border-zinc-900 select-all">
+                    VITE_SUPABASE_URL = (sua URL)<br />
+                    VITE_SUPABASE_ANON_KEY = (sua chave anon)
+                  </code>
+                </p>
+              </div>
+
+              <div className="p-2.5 bg-emerald-500/5 text-emerald-400 border border-emerald-500/10 rounded-xl flex items-center gap-2">
+                <Check className="w-5 h-5 text-emerald-400 shrink-0" />
+                <p className="text-[10px] font-serif italic text-zinc-300">
+                  Assim que as chaves forem registradas nas configurações, o sistema fará a conexão instantânea de forma 100% segura. Você e sua equipe poderão acessar, sincronizar e atualizar dados de qualquer celular ao mesmo tempo!
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setShowDbGuide(false);
+                  setSqlCopied(false);
+                }}
+                className="w-full py-3 bg-gradient-to-r from-yellow-500 to-amber-500 hover:scale-[1.01] text-zinc-950 rounded-xl font-black text-xs transition-transform cursor-pointer shadow-lg shadow-yellow-500/10 font-sans"
+              >
+                Entendi, fechar tutorial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* QUICK COLLECT LIST MODAL */}
       <QuickCollectModal
