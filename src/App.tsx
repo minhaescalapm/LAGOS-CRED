@@ -3,6 +3,7 @@ import { dbService } from "./services/dbService";
 import { ClientWithLoanDetails, FinancialStats, Loan, Payment } from "./types";
 import { getTodayStr, formatFriendlyDate } from "./utils/dateUtils";
 import { FinancialSummary } from "./components/FinancialSummary";
+import { getSupabaseDiagnostics, DiagnosticResult } from "./services/supabaseClient";
 import { StatsSection } from "./components/StatsSection";
 import { AlertsSection } from "./components/AlertsSection";
 import { ClientForm } from "./components/ClientForm";
@@ -60,6 +61,26 @@ export default function App() {
   const [showDbGuide, setShowDbGuide] = useState(false);
   const [sqlCopied, setSqlCopied] = useState(false);
   const [showQuickCollectModal, setShowQuickCollectModal] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
+  const [isTestingDiag, setIsTestingDiag] = useState(false);
+
+  const runDiagnostics = async () => {
+    setIsTestingDiag(true);
+    try {
+      const res = await getSupabaseDiagnostics();
+      setDiagnostics(res);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsTestingDiag(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showDbGuide) {
+      runDiagnostics();
+    }
+  }, [showDbGuide]);
 
   // Sync state from LocalStorage or Supabase on mount and state changes
   const refreshData = async () => {
@@ -997,11 +1018,86 @@ export default function App() {
               </button>
             </div>
 
-            {/* Scrollable Content */}
-            <div className="p-5 md:p-6 space-y-4 overflow-y-auto scrollbar-thin text-xs text-zinc-350 leading-relaxed">
-              <p className="text-center text-zinc-400 text-[11px]">
+             {/* Scrollable Content */}
+            <div className="p-5 md:p-6 space-y-4 overflow-y-auto scrollbar-thin text-xs text-zinc-350 leading-relaxed font-sans">
+              <p className="text-center text-zinc-400 text-[11px] font-sans">
                 Atualmente seus dados ficam gravados apenas na memória de dados temporária <strong>deste aparelho</strong>. Para sincronizar em tempo real e acessar de qualquer telefone, você precisa conectar o banco gratuito <strong className="text-yellow-500">Supabase</strong>.
               </p>
+
+              {/* REAL-TIME SUPABASE CONNECTION DIAGNOSTICS */}
+              <div className="p-4 bg-zinc-950 border border-zinc-800 rounded-xl space-y-3 font-sans">
+                <div className="flex items-center justify-between border-b border-zinc-850 pb-2 font-sans">
+                  <div className="flex items-center gap-1.5 font-sans">
+                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse shrink-0" />
+                    <span className="font-extrabold text-[11px] uppercase tracking-wider text-zinc-100 font-sans">Painel de Diagnóstico em Tempo Real</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={runDiagnostics}
+                    disabled={isTestingDiag}
+                    className="text-[10px] text-yellow-500 font-extrabold uppercase hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    {isTestingDiag ? "Testando..." : "Testar Conexão"}
+                  </button>
+                </div>
+
+                {diagnostics ? (
+                  <div className="space-y-2 text-[11px] font-sans">
+                    <div className="grid grid-cols-3 gap-2 border-b border-zinc-900/60 pb-2">
+                      <span className="text-zinc-500 font-medium">Detector URL:</span>
+                      <span className="col-span-2 font-mono text-zinc-300 select-all font-bold">
+                        {diagnostics.maskedUrl}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 border-b border-zinc-900/60 pb-2">
+                      <span className="text-zinc-500 font-medium">Detector Chave:</span>
+                      <span className="col-span-2 font-mono text-zinc-300 select-all">
+                        {diagnostics.maskedKey}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 border-b border-zinc-900/60 pb-2">
+                      <span className="text-zinc-500 font-medium">Status Config:</span>
+                      <span className={`col-span-2 font-bold ${diagnostics.isConfigured ? "text-emerald-400" : "text-amber-400"}`}>
+                        {diagnostics.isConfigured ? "🟢 Válido (Vite detectou as chaves)" : "⚠️ Inválido / Vazio (Não detectado)"}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg border text-[10px] mt-2 leading-relaxed space-y-1 bg-zinc-900/40 border-zinc-850">
+                      <span className="font-extrabold text-zinc-300 block uppercase tracking-wider text-[9px]">Resultado do Teste de Comunicação:</span>
+                      <p className={`font-medium ${diagnostics.pingResult.success ? "text-emerald-400" : "text-yellow-400"}`}>
+                        {diagnostics.pingResult.success ? "🟢 SUCESSO:" : "⚠️ FALHOU:"} {diagnostics.pingResult.message}
+                      </p>
+                      
+                      {!diagnostics.pingResult.success && diagnostics.isConfigured && (
+                        <div className="text-zinc-400 font-sans mt-2 pt-1 border-t border-zinc-800 text-[10px] space-y-1">
+                          <strong className="text-red-400 text-[9px] block uppercase">Como corrigir este erro:</strong>
+                          {diagnostics.pingResult.code === "PGRST125" ? (
+                            <span>
+                              <strong>Erro de Caminho Desconhecido (PGRST125):</strong> Isto ocorre porque a URL do Supabase está mal configurada nas suas credenciais (ex: tem caminhos extras ou falta o ".supabase.co") ou porque suas tabelas não foram criadas ou estão incorretas. Verifique sua chave <strong>VITE_SUPABASE_URL</strong>.
+                            </span>
+                          ) : diagnostics.pingResult.message.includes("relation") || diagnostics.pingResult.message.includes("does not exist") ? (
+                            <span>
+                              <strong>Tabelas não encontradas no banco:</strong> Suas credenciais estão corretas, mas você esqueceu de criar as tabelas! Copie o script SQL do <strong>Passo 2</strong> abaixo, vá no <strong className="text-zinc-200">SQL Editor</strong> do seu Supabase, cole e clique em <strong>Run</strong>.
+                            </span>
+                          ) : diagnostics.pingResult.message.includes("API key") || diagnostics.pingResult.code === "PGRST111" || diagnostics.pingResult.message.includes("Invalid API key") ? (
+                            <span>
+                              <strong>Autenticação Falhou (Chave Inválida):</strong> Sua chave anônima (anon key) está com caracteres incorretos, espaços ou aspas sobrando. Substitua-a no Passo 3.
+                            </span>
+                          ) : (
+                            <span>
+                              Se você acabou de configurar as variáveis de ambiente na barra superior, por favor **reinicie a página ou limpe o cache**, pois o Vite precisa de um pequeno momento para recarregar as novas variáveis na memória local.
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-zinc-500 italic text-[11px] text-center">Carregando diagnóstico do banco de dados...</p>
+                )}
+              </div>
 
               {/* Step 1 */}
               <div className="p-3.5 bg-zinc-950/40 border border-zinc-850 rounded-xl space-y-1.5">
