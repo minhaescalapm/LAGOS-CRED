@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil } from "lucide-react";
+import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil, Copy } from "lucide-react";
 import { ClientWithLoanDetails, Client } from "../types";
 import { getTodayStr } from "../utils/dateUtils";
 import { dbService } from "../services/dbService";
@@ -18,9 +18,10 @@ interface ClientFormProps {
   clientToEdit?: ClientWithLoanDetails | null;
   isEmbeddedInTab?: boolean;
   initialStartDate?: string;
+  isCopyMode?: boolean;
 }
 
-export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, initialStartDate }: ClientFormProps) {
+export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, initialStartDate, isCopyMode }: ClientFormProps) {
   const [name, setName] = useState(clientToEdit ? clientToEdit.client.name : "");
   
   // Format initial phone value if editing
@@ -50,6 +51,9 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     clientToEdit && clientToEdit.activeLoan ? clientToEdit.activeLoan.dailyRate : ""
   );
   const [startDate, setStartDate] = useState(() => {
+    if (isCopyMode) {
+      return getTodayStr();
+    }
     if (clientToEdit && clientToEdit.activeLoan) {
       return clientToEdit.activeLoan.startDate;
     }
@@ -281,14 +285,14 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
           <div className="flex items-center justify-between p-4 md:p-5 border-b border-zinc-505/20 bg-zinc-950/40">
             <div className="flex items-center gap-2.5">
               <div className="p-2 bg-gradient-to-tr from-amber-500 to-yellow-400 text-black rounded-lg">
-                {clientToEdit ? <Pencil className="w-4 h-4 font-bold" /> : <Plus className="w-4 h-4 font-bold" />}
+                {isCopyMode ? <Copy className="w-4 h-4 font-bold" /> : clientToEdit ? <Pencil className="w-4 h-4 font-bold" /> : <Plus className="w-4 h-4 font-bold" />}
               </div>
               <div>
                 <h3 className="font-semibold text-zinc-100 text-sm md:text-base">
-                  {clientToEdit ? "Editar Cliente & Contrato" : "Novo Cliente & Empréstimo"}
+                  {isCopyMode ? "Copiar e Novo Contrato" : clientToEdit ? "Editar Cliente & Contrato" : "Novo Cliente & Empréstimo"}
                 </h3>
                 <p className="text-[10px] text-zinc-500">
-                  {clientToEdit ? "Atualize as informações de cadastro e os termos financeiros" : "Crie o cliente e o contrato de empréstimo ativo"}
+                  {isCopyMode ? "Abra um novo contrato para este cliente duplicando os dados anteriores como modelo" : clientToEdit ? "Atualize as informações de cadastro e os termos financeiros" : "Crie o cliente e o contrato de empréstimo ativo"}
                 </p>
               </div>
             </div>
@@ -649,7 +653,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                   : "bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-black shadow-lg shadow-amber-500/10 hover:shadow-amber-500/15 animate-pulse-subtle"
               }`}
             >
-              {isSubmitting ? "Cadastrando..." : clientToEdit ? "Salvar Alterações" : "Iniciar Operação"}
+              {isSubmitting ? (isCopyMode ? "Criando contrato..." : "Cadastrando...") : isCopyMode ? "Confirmar Novo Contrato" : clientToEdit ? "Salvar Alterações" : "Iniciar Operação"}
             </button>
           </div>
         </form>

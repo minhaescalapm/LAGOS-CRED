@@ -52,6 +52,7 @@ export default function App() {
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientWithLoanDetails | null>(null);
+  const [copyingClient, setCopyingClient] = useState<ClientWithLoanDetails | null>(null);
   const [pixModal, setPixModal] = useState<{ isOpen: boolean; clientName: string }>({
     isOpen: false,
     clientName: ""
@@ -137,6 +138,7 @@ export default function App() {
         data.startDate
       );
       setShowAddModal(false);
+      setCopyingClient(null);
       await refreshData();
     } catch (err) {
       console.error("Erro ao cadastrar novo cliente:", err);
@@ -761,6 +763,7 @@ export default function App() {
                     onEditClient={(clientDetail) => setEditingClient(clientDetail)}
                     onAdjustLoan={handleAdjustLoan}
                     onToggleSunday={handleToggleSunday}
+                    onCopyContract={(clientDetail) => setCopyingClient(clientDetail)}
                   />
                 ))}
               </div>
@@ -847,6 +850,16 @@ export default function App() {
           clientToEdit={editingClient}
           onClose={() => setEditingClient(null)}
           onSubmit={handleEditClientSubmit}
+        />
+      )}
+
+      {/* MODAL 1C: COPY CLIENT CONTRACT FORM */}
+      {copyingClient && (
+        <ClientForm
+          clientToEdit={copyingClient}
+          isCopyMode={true}
+          onClose={() => setCopyingClient(null)}
+          onSubmit={handleAddNewClient}
         />
       )}
 

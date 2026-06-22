@@ -25,6 +25,7 @@ interface ClientCardProps {
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
   onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => void;
   onToggleSunday?: (loanId: string) => void;
+  onCopyContract?: (clientDetail: ClientWithLoanDetails) => void;
 }
 
 export const ClientCard: React.FC<ClientCardProps> = ({ 
@@ -34,7 +35,8 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   onDeleteClient,
   onEditClient,
   onAdjustLoan,
-  onToggleSunday
+  onToggleSunday,
+  onCopyContract
 }) => {
   const { client, activeLoan, paidCount, totalDays, referenceDate, isDelayed, daysBehind } = clientDetail;
 
@@ -80,6 +82,56 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     : 0;
   const expectedPaidCount = activeLoan ? Math.max(0, Math.min(elapsedDaysBack, totalDays)) : 0;
 
+  // Generate all scheduled dates for the active loan
+  const allScheduledDates = React.useMemo(() => {
+    if (!activeLoan) return [];
+    const dates: string[] = [];
+    let current = addDays(activeLoan.startDate, 1);
+    const isExcluding = activeLoan.excludeSundays !== false;
+    let added = 0;
+    let iterations = 0;
+    while (added < activeLoan.totalDays && iterations < 1000) {
+      iterations++;
+      if (!isExcluding || !isSunday(current)) {
+        dates.push(current);
+        added++;
+      }
+      current = addDays(current, 1);
+    }
+    return dates;
+  }, [activeLoan]);
+
+  // The first paidCount schedules are already paid. The rest are unpaid!
+  const unpaidSchedules = React.useMemo(() => {
+    return allScheduledDates.slice(paidCount);
+  }, [allScheduledDates, paidCount]);
+
+  const [selectedUnpaidDates, setSelectedUnpaidDates] = React.useState<string[]>([]);
+
+  // Automatically pre-select late dates or the first single upcoming unpaid date
+  React.useEffect(() => {
+    if (activeLoan && unpaidSchedules.length > 0) {
+      const today = getTodayStr();
+      const lateDates = unpaidSchedules.filter(d => d <= today);
+      if (lateDates.length > 0) {
+        setSelectedUnpaidDates(lateDates);
+      } else {
+        setSelectedUnpaidDates([unpaidSchedules[0]]);
+      }
+    } else {
+      setSelectedUnpaidDates([]);
+    }
+  }, [unpaidSchedules, activeLoan]);
+
+  // Sincronizar contador de parcelas com as datas marcadas interativamente
+  React.useEffect(() => {
+    if (selectedUnpaidDates.length > 0) {
+      setPayDaysCount(selectedUnpaidDates.length);
+    } else {
+      setPayDaysCount(1);
+    }
+  }, [selectedUnpaidDates]);
+
   // Show temporary Whatsapp Button for the most recent payload
   const [showWhatsappReceipt, setShowWhatsappReceipt] = useState(false);
   const [lastReceiptDetails, setLastReceiptDetails] = useState<{ x: number; y: number } | null>(null);
@@ -99,19 +151,37 @@ export const ClientCard: React.FC<ClientCardProps> = ({
       ? formatFriendlyDate(referenceDate) 
       : formatFriendlyDate(activeLoan.startDate);
 
+    // List of selected dates
+    const selectedDaysText = selectedUnpaidDates.length > 0
+      ? selectedUnpaidDates
+          .map((d, idx) => {
+            const isToday = d === getTodayStr();
+            const dateLabel = formatFriendlyDate(d);
+            const displayIndex = paidCount + unpaidSchedules.indexOf(d) + 1;
+            return `• *Diária #${displayIndex} (${dateLabel})* ${isToday ? "_(Hoje)_" : ""}: R$ ${activeLoan.dailyRate.toFixed(2)}`;
+          })
+          .join("\n")
+      : `• *Nova Diária*: R$ ${activeLoan.dailyRate.toFixed(2)}`;
+
+    const totalSelectedAmount = (selectedUnpaidDates.length > 0 ? selectedUnpaidDates.length : 1) * activeLoan.dailyRate;
+
     const messageTemplate = `Olá *${client.name}*, tudo bem?
-Passando para lembrar da sua parcela diária no valor de *R$ ${activeLoan.dailyRate.toFixed(2)}*.
+Passando para lembrar das parcelas diárias pendentes do seu contrato no valor individual de *R$ ${activeLoan.dailyRate.toFixed(2)}*.
 
-📊 *Seu Resumo:*
-Progresso: *${paidCount} de ${totalDays} pagas*
-Última atualização: *${dateFormatted}*
+📊 *Seu Resumo Geral:*
+Progresso do Contrato: *${paidCount} de ${totalDays} pagas*
+Sua última diária acumulada foi em: *${dateFormatted}*
 
-⚠️ Você precisa acertar a parcela pendente para mantermos o seu cadastro atualizado.
+🗓️ *Parcelas em aberto selecionadas para acerto:*
+${selectedDaysText}
+
+*Valor total desta cobrança:* 👇
+🚨 *R$ ${totalSelectedAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}*
 
 🔑 *Nossa Chave Pix (E-mail):*
 lagoscelular5@gmail.com
 
-ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pegar um novo valor quando precisar.`;
+ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao simular um novo valor. Obrigado!`;
 
     const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(messageTemplate)}`;
     window.open(url, "_blank");
@@ -305,6 +375,15 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                     <Sliders className="w-3.5 h-3.5" />
                   </button>
                 )}
+                {onCopyContract && (
+                  <button
+                    onClick={() => onCopyContract(clientDetail)}
+                    className="p-1 hover:bg-zinc-800/60 text-zinc-650 hover:text-emerald-500 rounded-lg transition-all cursor-pointer"
+                    title="Copiar e criar novo contrato para este cliente"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   onClick={() => onEditClient?.(clientDetail)}
                   className="p-1 hover:bg-zinc-800/60 text-zinc-650 hover:text-yellow-500 rounded-lg transition-all cursor-pointer"
@@ -395,6 +474,88 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
             </span>
           </div>
         </div>
+
+        {/* INTERACTIVE PENDING DAYS SELECTION */}
+        {!isFullyPaid && unpaidSchedules.length > 0 && (
+          <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-3 space-y-2">
+            <div className="flex justify-between items-center pb-1 border-b border-zinc-800/40">
+              <span className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">
+                Selecionar para PG / Cobrança
+              </span>
+              <span className="text-[10px] text-yellow-500 font-black font-mono">
+                {selectedUnpaidDates.length === 1 
+                  ? "1 marcada" 
+                  : `${selectedUnpaidDates.length} marcadas`}
+              </span>
+            </div>
+            
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-800">
+              {unpaidSchedules.slice(0, 10).map((date, index) => {
+                const isSelected = selectedUnpaidDates.includes(date);
+                const labelDate = formatFriendlyDate(date);
+                const isOverdue = date < getTodayStr();
+                const isTodayDate = date === getTodayStr();
+                const displayIndex = paidCount + index + 1;
+                
+                return (
+                  <button
+                    key={date}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedUnpaidDates(prev => prev.filter(d => d !== date));
+                      } else {
+                        setSelectedUnpaidDates(prev => [...prev, date].sort());
+                      }
+                    }}
+                    className={`flex-shrink-0 p-2 rounded-xl text-left border transition-all flex flex-col justify-between min-w-[100px] h-[75px] cursor-pointer ${
+                      isSelected 
+                        ? "bg-emerald-500/15 border-emerald-500 text-white" 
+                        : isOverdue 
+                          ? "bg-amber-500/5 hover:bg-amber-500/10 border-amber-500/20 text-zinc-400" 
+                          : "bg-zinc-900/40 hover:bg-zinc-900/60 border-zinc-850 text-zinc-400"
+                    }`}
+                  >
+                    <div className="flex justify-between items-center w-full">
+                      <span className="font-mono text-[9px] text-zinc-500 font-bold">
+                        #{displayIndex}
+                      </span>
+                      <span className={`text-[8px] px-1 rounded font-black uppercase ${
+                        isOverdue 
+                          ? "bg-amber-500/10 text-amber-500" 
+                          : isTodayDate 
+                            ? "bg-yellow-500/10 text-yellow-500" 
+                            : "bg-zinc-800 text-zinc-500"
+                      }`}>
+                        {isOverdue ? "Atraso" : isTodayDate ? "Hoje" : "Futuro"}
+                      </span>
+                    </div>
+                    
+                    <span className="font-bold text-[10px] tracking-tight truncate mt-1">
+                      {labelDate}
+                    </span>
+                    
+                    <div className={`mt-1.5 w-full py-0.5 rounded text-center text-[9px] font-black tracking-wider transition-all uppercase ${
+                      isSelected 
+                        ? "bg-emerald-600 text-white shadow-[0_0_8px_rgba(16,185,129,0.25)]" 
+                        : "bg-zinc-950/60 hover:bg-zinc-900 text-zinc-500 border border-zinc-850"
+                    }`}>
+                      {isSelected ? "✓ PG" : "Marcar"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {selectedUnpaidDates.length > 0 && (
+              <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400 bg-zinc-900/40 p-1.5 rounded-lg">
+                <span>Total Marcado para PG:</span>
+                <span className="font-black text-emerald-400 font-bold">
+                  R$ {(selectedUnpaidDates.length * activeLoan.dailyRate).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* SUNDAY SETTING BUTTON */}
         {onToggleSunday && (
@@ -649,7 +810,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
             {!isFullyPaid ? (
               <button
                 onClick={() => {
-                  setPayDaysCount(1);
+                  setPayDaysCount(selectedUnpaidDates.length > 0 ? selectedUnpaidDates.length : 1);
                   setIsExpandingPay(!isExpandingPay);
                   setIsAdjusting(false); // Exclusão mútua
                 }}
@@ -657,7 +818,11 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                 title="Registrar recebimento de parcela de diária"
               >
                 <PlusCircle className="w-4 h-4 text-zinc-950 shrink-0" />
-                <span>Recebimento</span>
+                <span>
+                  {selectedUnpaidDates.length > 0
+                    ? `Baixa ${selectedUnpaidDates.length}x`
+                    : "Recebimento"}
+                </span>
               </button>
             ) : (
               <div className="px-3 py-2.5 text-center bg-yellow-500/10 text-yellow-500 text-xs font-bold rounded-xl border border-yellow-500/20 flex items-center justify-center gap-1">
