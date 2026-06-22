@@ -223,10 +223,13 @@ export const dbService = {
           name: newClient.name,
           phone: newClient.phone
         });
-        if (!error) return newClient;
-        console.warn("Supabase client insertion error, falling back to local:", error);
-      } catch (err) {
-        console.warn("Supabase connection error:", err);
+        if (error) {
+          throw new Error(`Erro ao salvar cliente no Supabase: ${error.message}. Por favor, verifique se executou o arquivo "schema.sql" no editor SQL do seu painel Supabase.`);
+        }
+        return newClient;
+      } catch (err: any) {
+        console.error("Supabase client insertion error:", err);
+        throw err;
       }
     }
 
@@ -247,12 +250,13 @@ export const dbService = {
           name: trimmedName,
           phone: cleanedPhone
         }).eq("id", id);
-        if (!error) {
-          return { id, name: trimmedName, phone: cleanedPhone };
+        if (error) {
+          throw new Error(`Erro ao atualizar cliente no Supabase: ${error.message}`);
         }
-        console.warn("Supabase client edit error, falling back to local:", error);
-      } catch (err) {
-        console.warn("Supabase client edit error:", err);
+        return { id, name: trimmedName, phone: cleanedPhone };
+      } catch (err: any) {
+        console.error("Supabase client edit error:", err);
+        throw err;
       }
     }
 
@@ -296,10 +300,13 @@ export const dbService = {
           total_days: newLoan.totalDays,
           start_date: newLoan.startDate
         });
-        if (!error) return newLoan;
-        console.warn("Supabase loan insert error, falling back to local:", error);
-      } catch (err) {
-        console.warn("Supabase connection error:", err);
+        if (error) {
+          throw new Error(`Erro ao salvar empréstimo no Supabase: ${error.message}.`);
+        }
+        return newLoan;
+      } catch (err: any) {
+        console.error("Supabase loan insert error:", err);
+        throw err;
       }
     }
 
@@ -328,23 +335,25 @@ export const dbService = {
           total_amount: totalAmount,
           start_date: startDate
         }).eq("id", id);
-        if (!error) {
-          // Fetch loan to get client_id
-          const currentLoans = await this.getLoans();
-          const oldLoan = currentLoans.find(l => l.id === id);
-          return {
-            id,
-            clientId: oldLoan ? oldLoan.clientId : "",
-            amountInvested,
-            totalDays,
-            dailyRate,
-            totalAmount,
-            startDate
-          };
+        if (error) {
+          throw new Error(`Erro ao atualizar contrato no Supabase: ${error.message}`);
         }
-        console.warn("Supabase loan edit error, falling back to local:", error);
-      } catch (err) {
-        console.warn("Supabase editActiveLoan err:", err);
+        
+        // Fetch loan to get client_id
+        const currentLoans = await this.getLoans();
+        const oldLoan = currentLoans.find(l => l.id === id);
+        return {
+          id,
+          clientId: oldLoan ? oldLoan.clientId : "",
+          amountInvested,
+          totalDays,
+          dailyRate,
+          totalAmount,
+          startDate
+        };
+      } catch (err: any) {
+        console.error("Supabase editActiveLoan error:", err);
+        throw err;
       }
     }
 
@@ -469,12 +478,13 @@ export const dbService = {
         }));
         
         const { error } = await supabase.from("payments").insert(formattedPayments);
-        if (!error) {
-          return newPayments;
+        if (error) {
+          throw new Error(`Erro ao registrar pagamentos no Supabase: ${error.message}`);
         }
-        console.warn("Supabase payment registration error, falling back to local:", error);
-      } catch (err) {
-        console.warn("Supabase connection error on registerPayment:", err);
+        return newPayments;
+      } catch (err: any) {
+        console.error("Supabase payment registration error:", err);
+        throw err;
       }
     }
 

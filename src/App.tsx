@@ -140,6 +140,7 @@ export default function App() {
       await refreshData();
     } catch (err) {
       console.error("Erro ao cadastrar novo cliente:", err);
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -180,6 +181,7 @@ export default function App() {
       await refreshData();
     } catch (err) {
       console.error("Erro ao salvar alterações do cliente:", err);
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -1132,6 +1134,7 @@ CREATE TABLE IF NOT EXISTS public.loans (
     daily_rate NUMERIC NOT NULL,
     total_days INTEGER NOT NULL,
     start_date TEXT NOT NULL,
+    exclude_sundays BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -1182,6 +1185,7 @@ CREATE TABLE IF NOT EXISTS public.loans (
     daily_rate NUMERIC NOT NULL,
     total_days INTEGER NOT NULL,
     start_date TEXT NOT NULL,
+    exclude_sundays BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

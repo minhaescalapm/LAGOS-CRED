@@ -215,7 +215,9 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     setPhone(value);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -248,16 +250,24 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
       return;
     }
 
-    // Submit
-    onSubmit({
-      name,
-      phone: cleanPhone,
-      amountInvested: principal,
-      totalDays: days,
-      dailyRate: rate,
-      startDate,
-      clientId: selectedClientId || undefined
-    });
+    setIsSubmitting(true);
+    try {
+      await onSubmit({
+        name,
+        phone: cleanPhone,
+        amountInvested: principal,
+        totalDays: days,
+        dailyRate: rate,
+        startDate,
+        clientId: selectedClientId || undefined
+      });
+    } catch (err: any) {
+      console.error("Erro ao registrar cliente/empréstimo:", err);
+      // Give a highly descriptive error for the user to understand if their Supabase setup is incomplete!
+      setError(err?.message || "Ocorreu um erro ao salvar os dados no banco de dados. Se estiver usando o Supabase, certifique-se de executar o script de Tabelas SQL fornecido nas configurações.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -632,9 +642,14 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
             )}
             <button
               type="submit"
-              className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-black font-extrabold rounded-xl text-xs shadow-lg shadow-amber-500/10 hover:shadow-amber-500/15 transition-all cursor-pointer"
+              disabled={isSubmitting}
+              className={`flex-1 py-3 font-extrabold rounded-xl text-xs transition-all cursor-pointer ${
+                isSubmitting
+                  ? "bg-zinc-800 text-zinc-500 border border-zinc-700 cursor-not-allowed"
+                  : "bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-600 hover:to-yellow-500 text-black shadow-lg shadow-amber-500/10 hover:shadow-amber-500/15 animate-pulse-subtle"
+              }`}
             >
-              {clientToEdit ? "Salvar Alterações" : "Iniciar Operação"}
+              {isSubmitting ? "Cadastrando..." : clientToEdit ? "Salvar Alterações" : "Iniciar Operação"}
             </button>
           </div>
         </form>

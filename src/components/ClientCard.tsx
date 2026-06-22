@@ -363,23 +363,37 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
           </div>
         </div>
 
-        {/* REFERENCE COVERAGE DATE */}
-        <div className="flex items-center justify-between p-2.5 bg-zinc-950/50 rounded-xl border border-zinc-800/80">
-          <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider flex items-center gap-1">
-            <CalendarDays className="w-3.5 h-3.5 text-yellow-500/60" />
-            Última Atualização
-          </span>
-          <span 
-            className={`font-mono text-xs font-bold ${
-              isFullyPaid 
-                ? "text-yellow-500" 
-                : isDelayed 
-                  ? "text-amber-500" 
-                  : "text-zinc-300"
-            }`}
-          >
-            {referenceDate ? formatFriendlyDate(referenceDate) : formatFriendlyDate(activeLoan.startDate)}
-          </span>
+        {/* DUAL DATES GRID */}
+        <div className="grid grid-cols-2 gap-2">
+          {/* LOAN START DATE */}
+          <div className="flex flex-col justify-between p-2 bg-zinc-950/20 rounded-xl border border-zinc-900">
+            <span className="text-[8px] text-zinc-550 uppercase font-bold tracking-wider flex items-center gap-1">
+              <CalendarDays className="w-3.5 h-3.5 text-zinc-500" />
+              Início do Contrato
+            </span>
+            <span className="font-mono text-[11px] font-bold text-zinc-300 block mt-1">
+              {activeLoan.startDate ? formatFriendlyDate(activeLoan.startDate) : "-"}
+            </span>
+          </div>
+
+          {/* REFERENCE COVERAGE DATE */}
+          <div className="flex flex-col justify-between p-2 bg-zinc-950/50 rounded-xl border border-zinc-800/80">
+            <span className="text-[8px] text-zinc-500 uppercase font-bold tracking-wider flex items-center gap-1">
+              <CalendarDays className="w-3.5 h-3.5 text-yellow-500/60" />
+              Última Atu.
+            </span>
+            <span 
+              className={`font-mono text-[11px] font-bold block mt-1 ${
+                isFullyPaid 
+                  ? "text-yellow-500" 
+                  : isDelayed 
+                    ? "text-amber-500" 
+                    : "text-zinc-300"
+              }`}
+            >
+              {referenceDate ? formatFriendlyDate(referenceDate) : formatFriendlyDate(activeLoan.startDate)}
+            </span>
+          </div>
         </div>
 
         {/* SUNDAY SETTING BUTTON */}

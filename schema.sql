@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS public.loans (
     daily_rate NUMERIC NOT NULL,
     total_days INTEGER NOT NULL,
     start_date TEXT NOT NULL,
+    exclude_sundays BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
