@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil, Copy } from "lucide-react";
 import { ClientWithLoanDetails, Client } from "../types";
-import { getTodayStr } from "../utils/dateUtils";
+import { getTodayStr, getRetroactiveStartDate, addDays, formatFriendlyDate } from "../utils/dateUtils";
 import { dbService } from "../services/dbService";
 
 interface ClientFormProps {
@@ -14,14 +14,17 @@ interface ClientFormProps {
     dailyRate: number;
     startDate: string;
     clientId?: string;
+    alreadyPaidCount?: number;
   }) => void;
   clientToEdit?: ClientWithLoanDetails | null;
   isEmbeddedInTab?: boolean;
   initialStartDate?: string;
   isCopyMode?: boolean;
+  simulationDate?: string;
 }
 
-export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, initialStartDate, isCopyMode }: ClientFormProps) {
+export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, initialStartDate, isCopyMode, simulationDate }: ClientFormProps) {
+  const baseToday = simulationDate || getTodayStr();
   const [name, setName] = useState(clientToEdit ? clientToEdit.client.name : "");
   
   // Format initial phone value if editing
@@ -52,7 +55,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
   );
   const [startDate, setStartDate] = useState(() => {
     if (isCopyMode) {
-      return getTodayStr();
+      return baseToday;
     }
     if (clientToEdit && clientToEdit.activeLoan) {
       return clientToEdit.activeLoan.startDate;
@@ -60,8 +63,21 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     if (initialStartDate) {
       return initialStartDate;
     }
-    return getTodayStr();
+    return baseToday;
   });
+
+  const [alreadyPaidCount, setAlreadyPaidCount] = useState<number>(0);
+
+  const handleAlreadyPaidCountChange = (count: number) => {
+    const validCount = Math.max(0, count);
+    setAlreadyPaidCount(validCount);
+    if (validCount > 0) {
+      const calculated = addDays(getRetroactiveStartDate(baseToday, validCount, true), -1);
+      setStartDate(calculated);
+    } else {
+      setStartDate(baseToday);
+    }
+  };
 
   const [error, setError] = useState("");
   const [isCustomizingParams, setIsCustomizingParams] = useState(false);
@@ -263,7 +279,8 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
         totalDays: days,
         dailyRate: rate,
         startDate,
-        clientId: selectedClientId || undefined
+        clientId: selectedClientId || undefined,
+        alreadyPaidCount: alreadyPaidCount > 0 ? alreadyPaidCount : undefined
       });
     } catch (err: any) {
       console.error("Erro ao registrar cliente/empréstimo:", err);
@@ -476,7 +493,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                         setIsCustomizingParams(false);
                         handleInterestChange(42);
                         handleDaysChange(26);
-                        setStartDate(getTodayStr());
+                        setStartDate(baseToday);
                       }}
                       className="text-[10px] text-amber-500 hover:text-amber-400 cursor-pointer font-bold"
                     >
@@ -600,6 +617,35 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
               </div>
             )}
           </div>
+
+          {/* SIMULADOR DE PRESTAÇÕES JÁ PAGAS - ALWAYS VISIBLE FOR NEW CLIENTS */}
+          {(!clientToEdit || isCopyMode) && (
+            <div className="bg-amber-400/5 border border-amber-400/20 p-4 rounded-2xl space-y-3 animate-fade-in select-none">
+              <div className="flex justify-between items-center select-none">
+                <span className="text-[10px] text-amber-400 font-extrabold uppercase tracking-widest block flex items-center gap-1.5">
+                  🔄 Simulador de Prestações Já Pagas
+                </span>
+                <span className="text-[9px] text-zinc-550 font-mono font-bold uppercase">Contar retroativo</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="relative shrink-0">
+                  <input 
+                    type="number"
+                    id="already-paid-count-field"
+                    min="0"
+                    max={totalDays}
+                    placeholder="0"
+                    value={alreadyPaidCount === 0 ? "" : alreadyPaidCount}
+                    onChange={e => handleAlreadyPaidCountChange(Number(e.target.value) || 0)}
+                    className="w-20 bg-zinc-950/80 border border-zinc-800 focus:border-amber-400 focus:outline-none rounded-xl py-2 px-3 text-center text-sm font-mono font-extrabold text-amber-400"
+                  />
+                </div>
+                <div className="text-xs text-zinc-300 font-medium leading-normal">
+                  Se o cliente já pagou <strong className="text-amber-400 font-bold">{alreadyPaidCount} diárias</strong>, calculamos o empréstimo iniciando em <strong className="text-zinc-100 underline decoration-amber-400 decoration-2 font-mono">{formatFriendlyDate(startDate)}</strong> para fechar hoje (Domingos inclusos no intervalo, porém isentos).
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* SIMULADOR PREVIEW */}
           <div className="bg-zinc-950/80 border border-zinc-805 rounded-xl p-4 space-y-2.5 select-none">

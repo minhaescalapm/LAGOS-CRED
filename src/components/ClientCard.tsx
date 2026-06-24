@@ -19,13 +19,14 @@ import { formatFriendlyDate, addDays, getTodayStr, getRetroactiveStartDate, getE
 
 interface ClientCardProps {
   clientDetail: ClientWithLoanDetails;
-  onRegisterPayment: (loanId: string, count: number, dateStr: string) => void;
+  onRegisterPayment: (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => void;
   onOpenPixModal: (clientName: string) => void;
   onDeleteClient: (clientId: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
   onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => void;
   onToggleSunday?: (loanId: string) => void;
   onCopyContract?: (clientDetail: ClientWithLoanDetails) => void;
+  simulationDate?: string;
 }
 
 export const ClientCard: React.FC<ClientCardProps> = ({ 
@@ -36,19 +37,36 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   onEditClient,
   onAdjustLoan,
   onToggleSunday,
-  onCopyContract
+  onCopyContract,
+  simulationDate
 }) => {
   const { client, activeLoan, paidCount, totalDays, referenceDate, isDelayed, daysBehind } = clientDetail;
 
+  const isExcludingSundays = activeLoan ? activeLoan.excludeSundays !== false : true;
+  const baseToday = simulationDate || getTodayStr();
+
+  // Predict new reference date if we added payDaysCount days
+  const getPredictedRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
+    let currentRef = startRef || (activeLoan ? activeLoan.startDate : baseToday);
+    for (let i = 0; i < count; i++) {
+      currentRef = addDays(currentRef, 1);
+      if (excludeSundays && isSunday(currentRef)) {
+        currentRef = addDays(currentRef, 1);
+      }
+    }
+    return currentRef;
+  };
+
   const [isExpandingPay, setIsExpandingPay] = useState(false);
   const [payDaysCount, setPayDaysCount] = useState<number>(1);
-  const [paymentDate, setPaymentDate] = useState(() => getTodayStr());
+  const [paymentDate, setPaymentDate] = useState(() => simulationDate || getTodayStr());
+  const [customRefDate, setCustomRefDate] = useState(() => getPredictedRefDate(referenceDate, 1, isExcludingSundays));
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   // States for Contract Adjustments
   const [isAdjusting, setIsAdjusting] = useState(false);
   const [adjustedPaidCount, setAdjustedPaidCount] = useState(paidCount);
-  const [adjustedStartDate, setAdjustedStartDate] = useState(() => activeLoan?.startDate || getTodayStr());
+  const [adjustedStartDate, setAdjustedStartDate] = useState(() => activeLoan?.startDate || referenceDate || getTodayStr());
 
   // Synchronize when parent triggers update/save
   React.useEffect(() => {
@@ -60,6 +78,14 @@ export const ClientCard: React.FC<ClientCardProps> = ({
       setAdjustedStartDate(activeLoan.startDate);
     }
   }, [activeLoan?.startDate]);
+
+  React.useEffect(() => {
+    setPaymentDate(simulationDate || getTodayStr());
+  }, [simulationDate]);
+
+  React.useEffect(() => {
+    setCustomRefDate(getPredictedRefDate(referenceDate, 1, isExcludingSundays));
+  }, [referenceDate, isExcludingSundays]);
 
   const handleAdjustmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,12 +99,11 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   };
 
   // Smart Calculations for instant preview & single-button adjustments
-  const isExcludingSundays = activeLoan ? activeLoan.excludeSundays !== false : true;
   const computedRetroStartDate = activeLoan 
-    ? addDays(getRetroactiveStartDate(getTodayStr(), adjustedPaidCount, isExcludingSundays), -1) 
-    : getTodayStr();
+    ? addDays(getRetroactiveStartDate(baseToday, adjustedPaidCount, isExcludingSundays), -1) 
+    : baseToday;
   const elapsedDaysBack = activeLoan 
-    ? getElapsedDaysExcludingSundays(addDays(adjustedStartDate, 1), getTodayStr(), isExcludingSundays) 
+    ? getElapsedDaysExcludingSundays(addDays(adjustedStartDate, 1), baseToday, isExcludingSundays) 
     : 0;
   const expectedPaidCount = activeLoan ? Math.max(0, Math.min(elapsedDaysBack, totalDays)) : 0;
 
@@ -128,7 +153,12 @@ export const ClientCard: React.FC<ClientCardProps> = ({
 
   // Show temporary Whatsapp Button for the most recent payload
   const [showWhatsappReceipt, setShowWhatsappReceipt] = useState(false);
-  const [lastReceiptDetails, setLastReceiptDetails] = useState<{ x: number; y: number } | null>(null);
+  const [lastReceiptDetails, setLastReceiptDetails] = useState<{ 
+    x: number; 
+    y: number; 
+    paymentDate: string; 
+    referenceDate: string; 
+  } | null>(null);
 
   const formatBRL = (val: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -149,7 +179,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     const selectedDaysText = selectedUnpaidDates.length > 0
       ? selectedUnpaidDates
           .map((d, idx) => {
-            const isToday = d === getTodayStr();
+            const isToday = d === baseToday;
             const dateLabel = formatFriendlyDate(d);
             const displayIndex = paidCount + unpaidSchedules.indexOf(d) + 1;
             return `• *Diária #${displayIndex} (${dateLabel})* ${isToday ? "_(Hoje)_" : ""}: R$ ${activeLoan.dailyRate.toFixed(2)}`;
@@ -243,28 +273,20 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
   const progressRatio = totalDays > 0 ? (paidCount / totalDays) * 100 : 0;
   const isFullyPaid = paidCount >= totalDays;
 
-  // Predict new reference date if we added payDaysCount days
-  const getPredictedRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
-    let currentRef = startRef || (activeLoan ? activeLoan.startDate : getTodayStr());
-    for (let i = 0; i < count; i++) {
-      currentRef = addDays(currentRef, 1);
-      if (excludeSundays && isSunday(currentRef)) {
-        currentRef = addDays(currentRef, 1);
-      }
-    }
-    return currentRef;
-  };
-  const predictedNewReferenceDate = getPredictedRefDate(referenceDate, payDaysCount, isExcludingSundays);
+  const predictedNewReferenceDate = getPredictedRefDate(customRefDate, payDaysCount - 1, isExcludingSundays);
 
   // Trigger registration
   const handlePaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onRegisterPayment(activeLoan.id, payDaysCount, paymentDate);
+    onRegisterPayment(activeLoan.id, payDaysCount, paymentDate, customRefDate);
     
     // Configure Whatsapp Receipt values
+    const finalRefDate = getPredictedRefDate(customRefDate, payDaysCount - 1, isExcludingSundays);
     setLastReceiptDetails({
       x: paidCount + payDaysCount,
-      y: totalDays
+      y: totalDays,
+      paymentDate: paymentDate,
+      referenceDate: finalRefDate
     });
     setShowWhatsappReceipt(true);
     setIsExpandingPay(false);
@@ -275,11 +297,12 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
     if (!lastReceiptDetails) return;
     
     const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
-    const today = new Date();
-    const formattedToday = `${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}/${today.getFullYear()}`;
+    const formattedPaymentDate = formatFriendlyDate(lastReceiptDetails.paymentDate);
+    const formattedRefDate = formatFriendlyDate(lastReceiptDetails.referenceDate);
 
-    const receiptMsg = `Olá *${client.name}*, pagamento registrado com sucesso em *${formattedToday}*!
+    const receiptMsg = `Olá *${client.name}*, pagamento registrado com sucesso em *${formattedPaymentDate}*!
 Progresso: *${lastReceiptDetails.x} de ${lastReceiptDetails.y} pagas*.
+Sua última diária paga refere-se a: *${formattedRefDate}*.
 
 ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pegar um novo valor quando precisar.`;
 
@@ -651,15 +674,26 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
               </div>
             </div>
 
-            {/* Simulated date input */}
-            <div>
-              <label className="text-[9px] text-zinc-400 block mb-1">Data Compensada</label>
-              <input
-                type="date"
-                value={paymentDate}
-                onChange={e => setPaymentDate(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2 text-xs text-white font-mono focus:outline-none cursor-pointer h-[32px]"
-              />
+            {/* Simulated date inputs */}
+            <div className="space-y-2">
+              <div>
+                <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-0.5">📅 Data do Pagamento</label>
+                <input
+                  type="date"
+                  value={paymentDate}
+                  onChange={e => setPaymentDate(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2 text-xs text-white font-mono focus:outline-none cursor-pointer h-[32px]"
+                />
+              </div>
+              <div>
+                <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-0.5">🔄 Ref. da Diária</label>
+                <input
+                  type="date"
+                  value={customRefDate}
+                  onChange={e => setCustomRefDate(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2 text-xs text-white font-mono focus:outline-none cursor-pointer h-[32px]"
+                />
+              </div>
             </div>
           </div>
 
@@ -804,7 +838,15 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
             {!isFullyPaid ? (
               <button
                 onClick={() => {
-                  setPayDaysCount(selectedUnpaidDates.length > 0 ? selectedUnpaidDates.length : 1);
+                  const initialCount = selectedUnpaidDates.length > 0 ? selectedUnpaidDates.length : 1;
+                  setPayDaysCount(initialCount);
+                  setPaymentDate(simulationDate || getTodayStr());
+                  
+                  const defaultRef = selectedUnpaidDates.length > 0 
+                    ? selectedUnpaidDates[0] 
+                    : getPredictedRefDate(referenceDate, 1, isExcludingSundays);
+                  setCustomRefDate(defaultRef);
+
                   setIsExpandingPay(!isExpandingPay);
                   setIsAdjusting(false); // Exclusão mútua
                 }}

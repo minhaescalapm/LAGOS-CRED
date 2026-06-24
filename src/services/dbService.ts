@@ -424,7 +424,7 @@ export const dbService = {
   },
 
   // REGISTER PAYMENTS (DATA + 1 LOGIC)
-  async registerPayment(loanId: string, dailyCount: number, paymentDate: string): Promise<Payment[]> {
+  async registerPayment(loanId: string, dailyCount: number, paymentDate: string, customReferenceDate?: string): Promise<Payment[]> {
     const loans = await this.getLoans();
     const payments = await this.getPayments();
     const loan = loans.find(l => l.id === loanId);
@@ -464,22 +464,43 @@ export const dbService = {
     const daysToRegister = Math.min(dailyCount + extraCount, loan.totalDays - countAlreadyPaid);
     const newPayments: Payment[] = [];
 
-    let currentRef = startingRefDate;
     const isExcluding = loan.excludeSundays !== false;
-    for (let i = 0; i < daysToRegister; i++) {
-      currentRef = addDays(currentRef, 1);
-      // Skip Sundays! If currentRef is Sunday and excludeSundays is true, shift it to Monday
-      if (isExcluding && isSunday(currentRef)) {
-        currentRef = addDays(currentRef, 1);
+
+    if (customReferenceDate) {
+      let currentRef = customReferenceDate;
+      for (let i = 0; i < daysToRegister; i++) {
+        if (i > 0) {
+          currentRef = addDays(currentRef, 1);
+          if (isExcluding && isSunday(currentRef)) {
+            currentRef = addDays(currentRef, 1);
+          }
+        }
+        const newPayment: Payment = {
+          id: generateUUID(),
+          loanId,
+          paymentDate, // The day the money was actually received
+          referenceDate: currentRef, // The target reference date being cleared
+          amount: loan.dailyRate
+        };
+        newPayments.push(newPayment);
       }
-      const newPayment: Payment = {
-        id: generateUUID(),
-        loanId,
-        paymentDate, // The day the money was actually received
-        referenceDate: currentRef, // The target reference date being cleared
-        amount: loan.dailyRate
-      };
-      newPayments.push(newPayment);
+    } else {
+      let currentRef = startingRefDate;
+      for (let i = 0; i < daysToRegister; i++) {
+        currentRef = addDays(currentRef, 1);
+        // Skip Sundays! If currentRef is Sunday and excludeSundays is true, shift it to Monday
+        if (isExcluding && isSunday(currentRef)) {
+          currentRef = addDays(currentRef, 1);
+        }
+        const newPayment: Payment = {
+          id: generateUUID(),
+          loanId,
+          paymentDate, // The day the money was actually received
+          referenceDate: currentRef, // The target reference date being cleared
+          amount: loan.dailyRate
+        };
+        newPayments.push(newPayment);
+      }
     }
 
     if (supabase) {
@@ -509,7 +530,7 @@ export const dbService = {
     return newPayments;
   },
 
-  // DELETE CLIENT AND THEIR DATA
+  // DELETE CLIENT'S CONTRACTS/DATA BUT KEEP CLIENT REGISTERED IN DATABASE
   async deleteClient(clientId: string): Promise<void> {
     if (supabase) {
       try {
@@ -548,15 +569,8 @@ export const dbService = {
           }
         }
         
-        const { error: cliErr } = await supabase
-          .from("clients")
-          .delete()
-          .eq("id", clientId);
-          
-        if (cliErr) {
-          console.error("Erro ao deletar cliente no Supabase:", cliErr);
-          throw new Error(cliErr.message);
-        }
+        // WE DO NOT DELETE THE CLIENT record from the "clients" table so they remain in the system registry
+        // for auto-suggestions / autocomplete when adding a new loan/contract.
       } catch (err: any) {
         console.warn("Erro ao sincronizar deleção no Supabase, limpando localmente:", err);
         throw err;
@@ -571,7 +585,8 @@ export const dbService = {
     const clientLoans = loans.filter(l => l.clientId === clientId);
     const loanIds = clientLoans.map(l => l.id);
 
-    clients = clients.filter(c => c.id !== clientId);
+    // Keep the client record in the clients array so they remain registered
+    // clients = clients.filter(c => c.id !== clientId);
     loans = loans.filter(l => l.clientId !== clientId);
     payments = payments.filter(p => !loanIds.includes(p.loanId));
 

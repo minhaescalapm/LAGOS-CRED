@@ -117,6 +117,7 @@ export default function App() {
     dailyRate: number;
     startDate: string;
     clientId?: string;
+    alreadyPaidCount?: number;
   }) => {
     setIsLoading(true);
     try {
@@ -130,13 +131,20 @@ export default function App() {
         targetClientId = newClient.id;
       }
 
-      await dbService.addLoan(
+      const newLoan = await dbService.addLoan(
         targetClientId,
         data.amountInvested,
         data.totalDays,
         data.dailyRate,
         data.startDate
       );
+
+      // Se houver parcelas já pagas informadas no simulador, nós as registramos de forma sequencial retroativa
+      if (data.alreadyPaidCount && data.alreadyPaidCount > 0) {
+        // Registra os pagamentos como realizados até a data de simulação / hoje
+        await dbService.registerPayment(newLoan.id, data.alreadyPaidCount, simulationDate);
+      }
+
       setShowAddModal(false);
       setCopyingClient(null);
       await refreshData();
@@ -220,10 +228,10 @@ export default function App() {
   };
 
   // Handle register payment (+1 logic)
-  const handleRegisterPayment = async (loanId: string, count: number, dateStr: string) => {
+  const handleRegisterPayment = async (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => {
     setIsLoading(true);
     try {
-      await dbService.registerPayment(loanId, count, dateStr);
+      await dbService.registerPayment(loanId, count, dateStr, customReferenceDate);
       await refreshData();
     } catch (err: any) {
       alert(err.message || "Erro ao registrar o pagamento.");
@@ -764,6 +772,7 @@ export default function App() {
                     onAdjustLoan={handleAdjustLoan}
                     onToggleSunday={handleToggleSunday}
                     onCopyContract={(clientDetail) => setCopyingClient(clientDetail)}
+                    simulationDate={simulationDate}
                   />
                 ))}
               </div>
@@ -836,6 +845,7 @@ export default function App() {
       {showAddModal && (
         <ClientForm
           initialStartDate={agendaPreSelectedDate}
+          simulationDate={simulationDate}
           onClose={() => {
             setShowAddModal(false);
             setAgendaPreSelectedDate(undefined);
@@ -848,6 +858,7 @@ export default function App() {
       {editingClient && (
         <ClientForm
           clientToEdit={editingClient}
+          simulationDate={simulationDate}
           onClose={() => setEditingClient(null)}
           onSubmit={handleEditClientSubmit}
         />
@@ -858,6 +869,7 @@ export default function App() {
         <ClientForm
           clientToEdit={copyingClient}
           isCopyMode={true}
+          simulationDate={simulationDate}
           onClose={() => setCopyingClient(null)}
           onSubmit={handleAddNewClient}
         />
