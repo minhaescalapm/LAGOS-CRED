@@ -158,6 +158,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     y: number; 
     paymentDate: string; 
     referenceDate: string; 
+    amountPaid?: number;
   } | null>(null);
 
   const formatBRL = (val: number) => {
@@ -286,7 +287,8 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
       x: paidCount + payDaysCount,
       y: totalDays,
       paymentDate: paymentDate,
-      referenceDate: finalRefDate
+      referenceDate: finalRefDate,
+      amountPaid: payDaysCount * (activeLoan?.dailyRate || 0)
     });
     setShowWhatsappReceipt(true);
     setIsExpandingPay(false);
@@ -297,14 +299,25 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
     if (!lastReceiptDetails) return;
     
     const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
-    const formattedPaymentDate = formatFriendlyDate(lastReceiptDetails.paymentDate);
-    const formattedRefDate = formatFriendlyDate(lastReceiptDetails.referenceDate);
+    const formatDDMM = (dateStr: string) => {
+      if (!dateStr) return "";
+      const parts = dateStr.split("-");
+      if (parts.length !== 3) return dateStr;
+      return `${parts[2]}/${parts[1]}`;
+    };
 
-    const receiptMsg = `Olá *${client.name}*, pagamento registrado com sucesso em *${formattedPaymentDate}*!
-Progresso: *${lastReceiptDetails.x} de ${lastReceiptDetails.y} pagas*.
-Sua última diária paga refere-se a: *${formattedRefDate}*.
+    const formattedRefDate = formatDDMM(lastReceiptDetails.referenceDate);
+    const clientNameUpper = client.name.toUpperCase();
+    const formattedAmount = formatBRL(lastReceiptDetails.amountPaid || (activeLoan?.dailyRate || 0));
 
-ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pegar um novo valor quando precisar.`;
+    const receiptMsg = `${clientNameUpper}
+ULTIMA ATUALIZAÇÃO ${formattedRefDate}
+PAGAS ${lastReceiptDetails.x}/${lastReceiptDetails.y}
+VALOR: ${formattedAmount}
+
+FAÇA SEU PIX: lagoscelular5@gmail.com
+
+Estaremos a Disposição, não perca seu crédito.`;
 
     const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(receiptMsg)}`;
     window.open(url, "_blank");
