@@ -247,7 +247,9 @@ VALOR: ${amt}
 
 FAÇA SEU PIX: lagoscelular5@gmail.com
 
-Estaremos a Disposição, não perca seu crédito.`;
+Estaremos a Disposição, não perca seu crédito.
+
+🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n\n\n`;
       setReceiptCustomText(msg);
     }
   }, [lastReceiptDetails, client.name, activeLoan?.dailyRate]);
@@ -267,7 +269,9 @@ VALOR: ${amt}
 
 FAÇA SEU PIX: lagoscelular5@gmail.com
 
-Estaremos a Disposição, não perca seu crédito.`;
+Estaremos a Disposição, não perca seu crédito.
+
+🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n\n\n`;
     setReceiptCustomText(msg);
   };
 
@@ -304,7 +308,12 @@ ${alertMessage}
 🔑 *Nossa Chave Pix (E-mail):*
 lagoscelular5@gmail.com
 
-ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao simular um novo valor. Obrigado!`;
+ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao simular um novo valor. Obrigado!
+
+🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+
+
+`;
 
     const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(messageTemplate)}`;
     window.open(url, "_blank");

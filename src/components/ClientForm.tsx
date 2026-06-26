@@ -309,7 +309,12 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
 
 *Está de acordo?* Envie seu documento com foto, selfie, comprovante de residência.
 
-⚠️ *Pagamentos de segunda a sábado.*`;
+⚠️ *Pagamentos de segunda a sábado.*
+
+🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+
+
+`;
 
     const url = formattedPhone 
       ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
