@@ -7,7 +7,7 @@ interface AlertsSectionProps {
   clientsWithLoans: ClientWithLoanDetails[];
   onOpenPixModal: (clientName: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
-  onDeleteClient?: (clientId: string) => void;
+  onDeleteClient?: (clientId: string, loanId?: string) => void;
 }
 
 export function AlertsSection({ clientsWithLoans, onOpenPixModal, onEditClient, onDeleteClient }: AlertsSectionProps) {
@@ -83,7 +83,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                           <span className="text-[8px] text-red-400 font-extrabold uppercase mr-1">Excluir?</span>
                           <button
                             onClick={() => {
-                              onDeleteClient?.(client.client.id);
+                              onDeleteClient?.(client.client.id, client.activeLoan?.id);
                               setDeletingClientId(null);
                             }}
                             className="px-1.5 py-0.5 bg-red-600 hover:bg-red-505 text-white font-black text-[9px] rounded cursor-pointer"

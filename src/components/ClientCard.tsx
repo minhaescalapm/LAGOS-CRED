@@ -22,7 +22,7 @@ interface ClientCardProps {
   clientDetail: ClientWithLoanDetails;
   onRegisterPayment: (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => void;
   onOpenPixModal: (clientName: string) => void;
-  onDeleteClient: (clientId: string) => void;
+  onDeleteClient: (clientId: string, loanId?: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
   onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => void;
   onToggleSunday?: (loanId: string) => void;
@@ -313,7 +313,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 <button
                   type="button"
                   onClick={() => {
-                    onDeleteClient(client.id);
+                    onDeleteClient(client.id, activeLoan?.id);
                     setShowDeleteConfirm(false);
                   }}
                   className="px-1.5 py-0.5 bg-red-600 hover:bg-red-505 text-white font-black text-[9px] rounded-md cursor-pointer transition-all"
@@ -439,7 +439,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 <button
                   type="button"
                   onClick={() => {
-                    onDeleteClient(client.id);
+                    onDeleteClient(client.id, activeLoan?.id);
                     setShowDeleteConfirm(false);
                   }}
                   className="px-1.5 py-0.5 bg-red-600 hover:bg-red-505 text-white font-black text-[9px] rounded-md cursor-pointer transition-all"
@@ -523,9 +523,24 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
         <div>
           <div className="flex justify-between items-center text-xs mb-1.5">
             <span className="text-zinc-500 font-bold text-[9px] uppercase tracking-wider">Progresso de Diárias</span>
-            <span className="font-mono font-bold text-white text-[11px]">
-              {paidCount} de {totalDays} pagas
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono font-bold text-white text-[11px]">
+                {paidCount} de {totalDays} pagas
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAdjusting(true);
+                  setIsExpandingPay(false);
+                  setIsRenewing(false);
+                }}
+                className="p-1 px-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-amber-500 rounded border border-zinc-850 bg-zinc-900/60 transition-all cursor-pointer text-[8px] font-bold flex items-center gap-1"
+                title="Editar pagas"
+              >
+                <Pencil className="w-2.5 h-2.5 text-amber-500" />
+                <span>Editar</span>
+              </button>
+            </div>
           </div>
           <div className="h-2 w-full bg-zinc-900 rounded-full overflow-hidden">
             <div 
@@ -554,10 +569,25 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
 
           {/* REFERENCE COVERAGE DATE */}
           <div className="flex flex-col justify-between p-2 bg-zinc-950/50 rounded-xl border border-zinc-800/80">
-            <span className="text-[8px] text-zinc-500 uppercase font-bold tracking-wider flex items-center gap-1">
-              <CalendarDays className="w-3.5 h-3.5 text-yellow-500/60" />
-              Última Diária Paga
-            </span>
+            <div className="flex justify-between items-center w-full">
+              <span className="text-[8px] text-zinc-500 uppercase font-bold tracking-wider flex items-center gap-1">
+                <CalendarDays className="w-3.5 h-3.5 text-yellow-500/60" />
+                Última Diária Paga
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAdjusting(true);
+                  setIsExpandingPay(false);
+                  setIsRenewing(false);
+                }}
+                className="p-0.5 px-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-850 rounded hover:text-amber-500 text-zinc-400 transition-all cursor-pointer text-[8px] font-bold flex items-center gap-0.5"
+                title="Editar última atualização"
+              >
+                <Pencil className="w-2 h-2 text-amber-500" />
+                <span>Editar</span>
+              </button>
+            </div>
             <span 
               className={`font-mono text-[11px] font-bold block mt-1 ${
                 isFullyPaid 

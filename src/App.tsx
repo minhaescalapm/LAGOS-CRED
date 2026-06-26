@@ -300,14 +300,24 @@ export default function App() {
   };
 
   // Handle client delete with confirmation cascade
-  const handleDeleteClient = async (clientId: string) => {
+  const handleDeleteClient = async (clientId: string, loanId?: string) => {
     setIsLoading(true);
     try {
-      await dbService.deleteClient(clientId);
+      if (loanId) {
+        await dbService.deleteLoan(loanId);
+        // Verificar se sobrou algum outro empréstimo ativo deste cliente
+        const allLoans = await dbService.getLoans();
+        const clientLoans = allLoans.filter(l => l.clientId === clientId);
+        if (clientLoans.length === 0) {
+          await dbService.deleteClient(clientId);
+        }
+      } else {
+        await dbService.deleteClient(clientId);
+      }
       await refreshData();
     } catch (err: any) {
-      console.error("Erro ao deletar cliente:", err);
-      alert("Erro ao deletar cliente: " + (err.message || "Por favor, tente novamente."));
+      console.error("Erro ao deletar:", err);
+      alert("Erro ao deletar: " + (err.message || "Por favor, tente novamente."));
     } finally {
       setIsLoading(false);
     }

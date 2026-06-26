@@ -31,7 +31,7 @@ interface ClientsDirectoryProps {
   simulationDate: string;
   onRefresh: () => void;
   onEditClient: (clientDetail: ClientWithLoanDetails) => void;
-  onDeleteClient: (clientId: string) => void;
+  onDeleteClient: (clientId: string, loanId?: string) => void;
 }
 
 export const ClientsDirectory: React.FC<ClientsDirectoryProps> = ({
@@ -265,7 +265,7 @@ export const ClientsDirectory: React.FC<ClientsDirectoryProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        onDeleteClient(selectedClientDetail.client.id);
+                        onDeleteClient(selectedClientDetail.client.id, selectedClientDetail.activeLoan?.id);
                         setSelectedClientId(null);
                         setShowDeleteConfirm(false);
                       }}
