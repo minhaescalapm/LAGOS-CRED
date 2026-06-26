@@ -254,6 +254,26 @@ export default function App() {
     }
   };
 
+  // Handle Contract Renewal simulation & execution
+  const handleRenewLoan = async (
+    oldLoanId: string,
+    amountInvested: number,
+    totalDays: number,
+    dailyRate: number,
+    startDate: string
+  ) => {
+    setIsLoading(true);
+    try {
+      await dbService.renewLoan(oldLoanId, amountInvested, totalDays, dailyRate, startDate);
+      await refreshData();
+    } catch (err: any) {
+      console.error("Erro ao renovar contrato:", err);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle toggling excludeSundays setting for customer loan
   const handleToggleSunday = async (loanId: string) => {
     setIsLoading(true);
@@ -772,6 +792,7 @@ export default function App() {
                     onAdjustLoan={handleAdjustLoan}
                     onToggleSunday={handleToggleSunday}
                     onCopyContract={(clientDetail) => setCopyingClient(clientDetail)}
+                    onRenewLoan={handleRenewLoan}
                     simulationDate={simulationDate}
                   />
                 ))}

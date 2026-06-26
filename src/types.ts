@@ -13,6 +13,7 @@ export interface Loan {
   totalDays: number; // Tempo do empréstimo em dias
   startDate: string; // Data inicial YYYY-MM-DD
   excludeSundays?: boolean; // Se ignora os domingos no ciclo financeiro
+  status?: string; // Status do contrato, e.g., 'active' ou 'completed'
 }
 
 export interface Payment {

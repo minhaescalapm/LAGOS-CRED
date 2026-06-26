@@ -150,7 +150,8 @@ function mapLoans(supabaseLoans: any[]): Loan[] {
     dailyRate: Number(l.daily_rate ?? l.dailyRate ?? 0),
     totalDays: Number(l.total_days ?? l.totalDays ?? 0),
     startDate: String(l.start_date || l.startDate || ""),
-    excludeSundays: l.exclude_sundays !== undefined ? Boolean(l.exclude_sundays) : (l.excludeSundays !== undefined ? Boolean(l.excludeSundays) : true)
+    excludeSundays: l.exclude_sundays !== undefined ? Boolean(l.exclude_sundays) : (l.excludeSundays !== undefined ? Boolean(l.excludeSundays) : true),
+    status: l.status ? String(l.status) : undefined
   }));
 }
 
@@ -386,6 +387,95 @@ export const dbService = {
     });
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     return updatedLoan || { id, clientId: "", amountInvested, totalDays, dailyRate, totalAmount, startDate };
+  },
+
+  // RENEW AN ACTIVE CONTRACT
+  async renewLoan(
+    oldLoanId: string,
+    amountInvested: number,
+    totalDays: number,
+    dailyRate: number,
+    startDate: string
+  ): Promise<Loan> {
+    const loans = await this.getLoans();
+    const oldLoan = loans.find(l => l.id === oldLoanId);
+    if (!oldLoan) {
+      throw new Error("Contrato antigo não encontrado.");
+    }
+
+    const clientId = oldLoan.clientId;
+    const totalAmount = Math.round(dailyRate * totalDays);
+    const newLoan: Loan = {
+      id: generateUUID(),
+      clientId,
+      amountInvested,
+      totalAmount,
+      dailyRate,
+      totalDays,
+      startDate,
+      excludeSundays: oldLoan.excludeSundays !== false, // inherit exclusion rule
+      status: "active"
+    };
+
+    if (supabase) {
+      try {
+        // 1. Mark old loan as 'completed'
+        const { error: updateError } = await supabase
+          .from("loans")
+          .update({ status: "completed" })
+          .eq("id", oldLoanId);
+
+        if (updateError) {
+          console.warn("Could not set status='completed' in Supabase. Table schema might not have status column.", updateError);
+        }
+
+        // 2. Insert new loan
+        const { error: insertError } = await supabase
+          .from("loans")
+          .insert({
+            id: newLoan.id,
+            client_id: clientId,
+            amount_invested: amountInvested,
+            total_amount: totalAmount,
+            daily_rate: dailyRate,
+            total_days: totalDays,
+            start_date: startDate,
+            exclude_sundays: newLoan.excludeSundays,
+            status: "active"
+          });
+
+        if (insertError) {
+          console.warn("Could not insert new loan with status field, retrying without status column...", insertError);
+          const { error: retryError } = await supabase
+            .from("loans")
+            .insert({
+              id: newLoan.id,
+              client_id: clientId,
+              amount_invested: amountInvested,
+              total_amount: totalAmount,
+              daily_rate: dailyRate,
+              total_days: totalDays,
+              start_date: startDate,
+              exclude_sundays: newLoan.excludeSundays
+            });
+          if (retryError) throw retryError;
+        }
+      } catch (err: any) {
+        console.error("Supabase renewLoan error:", err);
+        throw err;
+      }
+    }
+
+    // Always update local storage
+    loans.forEach(l => {
+      if (l.id === oldLoanId) {
+        l.status = "completed";
+      }
+    });
+    loans.push(newLoan);
+    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+
+    return newLoan;
   },
 
   // TOGGLE EXCLUDE SUNDAYS FOR A LOAN
@@ -860,6 +950,7 @@ export const dbService = {
     
     // 1. Dinheiro Investido (Soma total do valor principal emprestado de contratos ativos)
     const activeLoans = loans.filter(loan => {
+      if (loan.status === "completed") return false;
       const loanPaymentsCount = payments.filter(p => p.loanId === loan.id).length;
       return loanPaymentsCount < loan.totalDays;
     });
