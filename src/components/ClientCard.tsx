@@ -275,6 +275,10 @@ Estaremos a Disposição, não perca seu crédito.`;
 
     const todayFormatted = formatFriendlyDate(baseToday);
 
+    const alertMessage = isDelayed
+      ? "⚠️ Você precisa acertar a parcela pendente para mantermos o seu cadastro atualizado."
+      : "🎉 PARABENS, VOCE ESTA EM DIA ACERTE A DE HOJE E MANTENHA SEU SCORE ALTO.";
+
     const messageTemplate = `Olá *${client.name}*, tudo bem?
 Passando para lembrar das parcelas diárias pendentes do seu contrato no valor individual de *R$ ${activeLoan.dailyRate.toFixed(2)}*.
 
@@ -284,6 +288,8 @@ Sua última diária paga foi em: *${dateFormatted}*
 
 🗓️ *Última atualização dia ${lastUpdateFormatted}, e faltam ${daysBehind} para ficar em dia.*
 _(Cálculo desde a última atualização ${lastUpdateFormatted} até hoje ${todayFormatted})_
+
+${alertMessage}
 
 🔑 *Nossa Chave Pix (E-mail):*
 lagoscelular5@gmail.com

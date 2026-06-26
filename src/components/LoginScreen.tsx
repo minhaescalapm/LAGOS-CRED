@@ -80,7 +80,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               <Phone className="w-4 h-4 text-zinc-550 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="(22) 99204-0941"
+                placeholder=""
                 value={phone}
                 onChange={handlePhoneChange}
                 required
@@ -101,7 +101,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               <KeyRound className="w-4 h-4 text-zinc-550 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type={showPassword ? "text" : "password"}
-                placeholder="******"
+                placeholder=""
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);

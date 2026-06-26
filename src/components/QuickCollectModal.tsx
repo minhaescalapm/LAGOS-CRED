@@ -39,13 +39,17 @@ export const QuickCollectModal: React.FC<QuickCollectModalProps> = ({
   });
 
   const handleSendCharge = (detail: ClientWithLoanDetails) => {
-    const { client, activeLoan, paidCount, totalDays, referenceDate } = detail;
+    const { client, activeLoan, paidCount, totalDays, referenceDate, isDelayed } = detail;
     if (!activeLoan) return;
 
     const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
     const dateFormatted = referenceDate
       ? formatFriendlyDate(referenceDate)
       : formatFriendlyDate(activeLoan.startDate);
+
+    const alertMessage = isDelayed
+      ? "⚠️ Você precisa acertar a parcela pendente para mantermos o seu cadastro atualizado."
+      : "🎉 PARABENS, VOCE ESTA EM DIA ACERTE A DE HOJE E MANTENHA SEU SCORE ALTO.";
 
     const messageTemplate = `Olá *${client.name}*, tudo bem?
 Passando para lembrar da sua parcela diária no valor de *R$ ${activeLoan.dailyRate.toFixed(2)}*.
@@ -54,7 +58,7 @@ Passando para lembrar da sua parcela diária no valor de *R$ ${activeLoan.dailyR
 Progresso: *${paidCount} de ${totalDays} pagas*
 Última atualização: *${dateFormatted}*
 
-⚠️ Você precisa acertar a parcela pendente para mantermos o seu cadastro atualizado.
+${alertMessage}
 
 🔑 *Nossa Chave Pix (E-mail):*
 lagoscelular5@gmail.com
