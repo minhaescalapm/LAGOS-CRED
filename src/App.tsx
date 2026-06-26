@@ -12,6 +12,8 @@ import { ClientsDirectory } from "./components/ClientsDirectory";
 import { FinancialControl } from "./components/FinancialControl";
 import { QuickCollectModal } from "./components/QuickCollectModal";
 import { SmartAgenda } from "./components/SmartAgenda";
+import { LoginScreen } from "./components/LoginScreen";
+import { InvestmentsDetails } from "./components/InvestmentsDetails";
 import { 
   Plus, 
   Search, 
@@ -32,17 +34,20 @@ import {
   Send,
   Home,
   ArrowLeft,
-  Server
+  Server,
+  LogOut,
+  TrendingUp
 } from "lucide-react";
 
 export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(() => localStorage.getItem("gestao_emprestimos_logged_in") === "true");
   const [simulationDate, setSimulationDate] = useState(() => getTodayStr());
   const [clientsWithLoans, setClientsWithLoans] = useState<ClientWithLoanDetails[]>([]);
   const [stats, setStats] = useState<FinancialStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // Filter & Search states
-  const [activeTab, setActiveTab] = useState<"home" | "collections" | "financial_control" | "agenda">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "collections" | "financial_control" | "agenda" | "investimentos">("home");
   const [agendaPreSelectedDate, setAgendaPreSelectedDate] = useState<string | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "NO_LOAN">("ALL");
@@ -93,10 +98,16 @@ export default function App() {
         dbService.getLoans ? dbService.getLoans() : Promise.resolve([]),
         dbService.getPayments ? dbService.getPayments() : Promise.resolve([])
       ]);
+
+      const activeClientIds = list.map(item => item.client.id);
+      const filteredLoans = (fetchedLoans as Loan[]).filter(l => activeClientIds.includes(l.clientId));
+      const filteredLoansIds = filteredLoans.map(l => l.id);
+      const filteredPayments = (fetchedPayments as Payment[]).filter(p => filteredLoansIds.includes(p.loanId));
+
       setClientsWithLoans(list);
       setStats(financialStats);
-      setAllLoans(fetchedLoans as Loan[]);
-      setAllPayments(fetchedPayments as Payment[]);
+      setAllLoans(filteredLoans);
+      setAllPayments(filteredPayments);
     } catch (err) {
       console.error("Erro ao carregar dados financeiros:", err);
     } finally {
@@ -302,6 +313,20 @@ export default function App() {
     }
   };
 
+  // Handle individual loan deletion
+  const handleDeleteLoan = async (loanId: string) => {
+    setIsLoading(true);
+    try {
+      await dbService.deleteLoan(loanId);
+      await refreshData();
+    } catch (err: any) {
+      console.error("Erro ao deletar contrato de empréstimo:", err);
+      alert("Erro ao deletar contrato: " + (err.message || "Por favor, tente novamente."));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Handle Pix clipboard copying
   const handleCopyPix = () => {
     const pixKey = "lagoscelular5@gmail.com";
@@ -346,6 +371,10 @@ export default function App() {
 
     return true; // "ALL"
   });
+
+  if (!isLoggedIn) {
+    return <LoginScreen onLoginSuccess={() => setIsLoggedIn(true)} />;
+  }
 
   return (
     <div id="pwa-root" className="min-h-screen bg-[#0d0d0f] text-zinc-100 font-sans flex flex-col antialiased">
@@ -416,10 +445,23 @@ export default function App() {
             <button
               onClick={() => setShowAddModal(true)}
               disabled={isLoading}
-              className="px-3 py-1.5 md:px-4 md:py-2 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-405 hover:to-amber-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/10 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="px-3 py-1.5 md:px-4 md:py-2 bg-gradient-to-r from-yellow-500 to-amber-500 hover:from-yellow-405 hover:to-amber-405 text-zinc-950 font-black text-xs rounded-xl shadow-lg shadow-yellow-500/10 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 font-sans"
             >
               <Plus className="w-3.5 h-3.5 stroke-[3]" />
               <span>Novo Contrato</span>
+            </button>
+
+            {/* Sair / Logout */}
+            <button
+              onClick={() => {
+                localStorage.removeItem("gestao_emprestimos_logged_in");
+                setIsLoggedIn(false);
+              }}
+              className="p-1.5 sm:px-3 sm:py-1.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-400 hover:text-red-400 text-xs font-semibold rounded-lg border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Sair da Conta"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sair</span>
             </button>
           </div>
         </div>
@@ -471,10 +513,10 @@ export default function App() {
         </div>
 
         {/* 3. CORE BALANCES (FINANCIAL SUMMARY) */}
-        {stats && <FinancialSummary stats={stats} />}
+        {stats && <FinancialSummary stats={stats} onTotalInvestedClick={() => setActiveTab("investimentos")} />}
 
         {/* 4. TAB NAVIGATION TOGGLES ON SINGLE PAGE (Meets Single-View Guidelines) */}
-        <div id="navigation-tabs" className="grid grid-cols-4 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
+        <div id="navigation-tabs" className="grid grid-cols-5 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
           <button
             onClick={() => setActiveTab("home")}
             className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
@@ -527,6 +569,19 @@ export default function App() {
             <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
             <span className="hidden sm:inline">Controle Financeiro</span>
             <span className="sm:hidden">Financeiro</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("investimentos")}
+            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === "investimentos"
+                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-850/30 shadow-inner"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            <TrendingUp className="w-4 h-4 text-amber-500 shrink-0" />
+            <span className="hidden sm:inline">Investimentos</span>
+            <span className="sm:hidden">Investido</span>
           </button>
         </div>
 
@@ -855,6 +910,16 @@ export default function App() {
           </div>
         )}
 
+        {/* TAB 5: DETALHAMENTO DE INVESTIMENTOS */}
+        {activeTab === "investimentos" && (
+          <InvestmentsDetails
+            clientsWithLoans={clientsWithLoans}
+            allLoans={allLoans}
+            onDeleteLoan={handleDeleteLoan}
+            onBack={() => setActiveTab("home")}
+          />
+        )}
+
       </main>
 
       {/* 5. FOOTER DETAILS AND COPYRIGHT LOGS */}
@@ -1170,8 +1235,12 @@ export default function App() {
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     phone TEXT,
+    archived BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Caso já tenha a tabela criada anteriormente, execute este comando para adicionar a nova coluna:
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS public.loans (
     id TEXT PRIMARY KEY,
@@ -1221,8 +1290,12 @@ CREATE POLICY "Permitir delete para todos" ON public.payments FOR DELETE USING (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     phone TEXT,
+    archived BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Adicionar coluna de arquivamento caso a tabela já exista
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS public.loans (
     id TEXT PRIMARY KEY,

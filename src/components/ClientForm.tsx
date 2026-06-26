@@ -148,7 +148,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     }
   };
 
-  const handleSelectSuggestion = (client: Client) => {
+  const handleSelectSuggestion = async (client: Client) => {
     setName(client.name);
     
     // Mask structure for Brazilian phone: (99) 99999-9999
@@ -165,6 +165,31 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     
     setSelectedClientId(client.id);
     setShowSuggestions(false);
+
+    // Fetch this client's most recent loan to auto-populate previous details
+    try {
+      const loans = await dbService.getLoans();
+      const clientLoans = loans
+        .filter(l => l.clientId === client.id)
+        .sort((a, b) => b.startDate.localeCompare(a.startDate));
+      
+      if (clientLoans.length > 0) {
+        const lastLoan = clientLoans[0];
+        setAmountInvested(lastLoan.amountInvested);
+        setTotalDays(lastLoan.totalDays);
+        setDailyRate(lastLoan.dailyRate);
+        setSimExcludeSundays(lastLoan.excludeSundays !== false);
+        
+        // Recalculate interest rate
+        const principal = lastLoan.amountInvested;
+        const total = lastLoan.dailyRate * lastLoan.totalDays;
+        const profit = total - principal;
+        const interest = principal > 0 ? Math.round((profit / principal) * 100) : 42;
+        setInterestRate(interest);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar dados do último contrato:", err);
+    }
   };
 
   // Interest State (default to 42% standard layout)

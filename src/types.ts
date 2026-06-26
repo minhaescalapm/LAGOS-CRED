@@ -2,6 +2,7 @@ export interface Client {
   id: string;
   name: string;
   phone: string; // Formatting / WhatsApp mask
+  archived?: boolean; // Se o cliente está arquivado/desativado
 }
 
 export interface Loan {

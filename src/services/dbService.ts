@@ -16,6 +16,7 @@ import { supabase, isSupabaseConfigured } from "./supabaseClient";
 const CLIENTS_KEY = "gestao_emprestimos_clients";
 const LOANS_KEY = "gestao_emprestimos_loans";
 const PAYMENTS_KEY = "gestao_emprestimos_payments";
+const ARCHIVED_CLIENTS_KEY = "gestao_emprestimos_archived_client_ids";
 
 function generateUUID(): string {
   try {
@@ -137,7 +138,8 @@ function mapClients(supabaseClients: any[]): Client[] {
   return supabaseClients.map(c => ({
     id: String(c.id),
     name: String(c.name || ""),
-    phone: String(c.phone || "")
+    phone: String(c.phone || ""),
+    archived: c.archived !== undefined ? Boolean(c.archived) : false
   }));
 }
 
@@ -181,18 +183,30 @@ export const dbService = {
 
   // GET ALL REQUIRING RECORDS
   async getClients(): Promise<Client[]> {
+    let list: Client[] = [];
     if (supabase) {
       try {
         const { data, error } = await supabase.from("clients").select("*").order("name");
         if (error) throw error;
-        if (data) return mapClients(data);
+        if (data) list = mapClients(data);
       } catch (err) {
         console.warn("Supabase Error, falling back to localStorage:", err);
       }
     }
-    const data = localStorage.getItem(CLIENTS_KEY);
-    const list: Client[] = data ? JSON.parse(data) : [];
-    return list.sort((a, b) => a.name.localeCompare(b.name));
+    
+    if (list.length === 0) {
+      const data = localStorage.getItem(CLIENTS_KEY);
+      list = data ? JSON.parse(data) : [];
+    }
+
+    // Load local archiving status
+    const archivedIdsStr = localStorage.getItem(ARCHIVED_CLIENTS_KEY);
+    const archivedIds: string[] = archivedIdsStr ? JSON.parse(archivedIdsStr) : [];
+
+    return list.map(c => ({
+      ...c,
+      archived: c.archived || archivedIds.includes(c.id)
+    })).sort((a, b) => a.name.localeCompare(b.name));
   },
 
   async getLoans(): Promise<Loan[]> {
@@ -260,6 +274,9 @@ export const dbService = {
     const cleanedPhone = phone.replace(/\D/g, "");
     const trimmedName = name.trim();
 
+    // Ensure edited client is unarchived
+    await this.unarchiveClient(id);
+
     if (supabase) {
       try {
         const { error } = await supabase.from("clients").update({
@@ -287,6 +304,41 @@ export const dbService = {
     return { id, name: trimmedName, phone: cleanedPhone };
   },
 
+  // UNARCHIVE/RESTORE CLIENT
+  async unarchiveClient(clientId: string): Promise<void> {
+    // Remove from local storage list
+    const archivedIdsStr = localStorage.getItem(ARCHIVED_CLIENTS_KEY);
+    if (archivedIdsStr) {
+      let archivedIds: string[] = JSON.parse(archivedIdsStr);
+      archivedIds = archivedIds.filter(id => id !== clientId);
+      localStorage.setItem(ARCHIVED_CLIENTS_KEY, JSON.stringify(archivedIds));
+    }
+
+    // Try to update client in Supabase
+    if (supabase) {
+      try {
+        await supabase
+          .from("clients")
+          .update({ archived: false })
+          .eq("id", clientId);
+      } catch (err) {
+        console.warn("Could not unarchive client in Supabase. Table schema might not have archived column.", err);
+      }
+    }
+
+    // Update locally stored client list if any
+    const data = localStorage.getItem(CLIENTS_KEY);
+    if (data) {
+      const clients: Client[] = JSON.parse(data);
+      clients.forEach(c => {
+        if (c.id === clientId) {
+          c.archived = false;
+        }
+      });
+      localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
+    }
+  },
+
   // ADD NEW LOAN
   async addLoan(
     clientId: string, 
@@ -295,6 +347,9 @@ export const dbService = {
     dailyRate: number, 
     startDate: string
   ): Promise<Loan> {
+    // Ensure the client is unarchived when starting a new contract
+    await this.unarchiveClient(clientId);
+
     const newLoan: Loan = {
       id: generateUUID(),
       clientId,
@@ -387,6 +442,45 @@ export const dbService = {
     });
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     return updatedLoan || { id, clientId: "", amountInvested, totalDays, dailyRate, totalAmount, startDate };
+  },
+
+  // DELETE INDIVIDUAL LOAN AND ITS ASSOCIATED PAYMENTS
+  async deleteLoan(loanId: string): Promise<void> {
+    if (supabase) {
+      try {
+        // Delete payments of this loan first
+        const { error: pErr } = await supabase
+          .from("payments")
+          .delete()
+          .eq("loan_id", loanId);
+        
+        if (pErr) {
+          console.error("Erro ao deletar pagamentos do empréstimo no Supabase:", pErr);
+        }
+
+        // Delete the loan
+        const { error: lErr } = await supabase
+          .from("loans")
+          .delete()
+          .eq("id", loanId);
+
+        if (lErr) {
+          throw new Error(`Erro ao deletar empréstimo no Supabase: ${lErr.message}`);
+        }
+      } catch (err: any) {
+        console.error("Supabase deleteLoan error:", err);
+        throw err;
+      }
+    }
+
+    // Always update local storage
+    const loans = await this.getLoans();
+    const filteredLoans = loans.filter(l => l.id !== loanId);
+    localStorage.setItem(LOANS_KEY, JSON.stringify(filteredLoans));
+
+    const payments = await this.getPayments();
+    const filteredPayments = payments.filter(p => p.loanId !== loanId);
+    localStorage.setItem(PAYMENTS_KEY, JSON.stringify(filteredPayments));
   },
 
   // RENEW AN ACTIVE CONTRACT
@@ -621,69 +715,40 @@ export const dbService = {
     return newPayments;
   },
 
-  // DELETE CLIENT'S CONTRACTS/DATA BUT KEEP CLIENT REGISTERED IN DATABASE
+  // DELETE CLIENT (ARCHIVE/SOFT DELETE CLIENT BUT KEEP HISTORICAL DATA IN DATABASE FOR SUGGESTIONS)
   async deleteClient(clientId: string): Promise<void> {
+    // 1. Add to local storage archived list for safe fallback
+    const archivedIdsStr = localStorage.getItem(ARCHIVED_CLIENTS_KEY);
+    const archivedIds: string[] = archivedIdsStr ? JSON.parse(archivedIdsStr) : [];
+    if (!archivedIds.includes(clientId)) {
+      archivedIds.push(clientId);
+      localStorage.setItem(ARCHIVED_CLIENTS_KEY, JSON.stringify(archivedIds));
+    }
+
+    // 2. Try to update status in Supabase (archived = true)
     if (supabase) {
       try {
-        // Query loans to delete their payments first
-        const { data: userLoans, error: lErr } = await supabase
-          .from("loans")
-          .select("id")
-          .eq("client_id", clientId);
+        const { error } = await supabase
+          .from("clients")
+          .update({ archived: true })
+          .eq("id", clientId);
         
-        if (lErr) {
-          console.error("Erro ao buscar empréstimos no Supabase:", lErr);
-          throw new Error(lErr.message);
+        if (error) {
+          console.warn("Could not set archived=true in Supabase. Table schema might not have archived column.", error);
         }
-        
-        if (userLoans && userLoans.length > 0) {
-          const loanIds = userLoans.map(l => l.id);
-          
-          const { error: pErr } = await supabase
-            .from("payments")
-            .delete()
-            .in("loan_id", loanIds);
-            
-          if (pErr) {
-            console.error("Erro ao deletar pagamentos no Supabase:", pErr);
-            throw new Error(pErr.message);
-          }
-
-          const { error: loanDelErr } = await supabase
-            .from("loans")
-            .delete()
-            .in("id", loanIds);
-
-          if (loanDelErr) {
-            console.error("Erro ao deletar empréstimos no Supabase:", loanDelErr);
-            throw new Error(loanDelErr.message);
-          }
-        }
-        
-        // WE DO NOT DELETE THE CLIENT record from the "clients" table so they remain in the system registry
-        // for auto-suggestions / autocomplete when adding a new loan/contract.
       } catch (err: any) {
-        console.warn("Erro ao sincronizar deleção no Supabase, limpando localmente:", err);
-        throw err;
+        console.warn("Erro ao sincronizar deleção (arquivamento) no Supabase:", err);
       }
     }
 
-    // Fallback/Sync local
-    let clients = await this.getClients();
-    let loans = await this.getLoans();
-    let payments = await this.getPayments();
-
-    const clientLoans = loans.filter(l => l.clientId === clientId);
-    const loanIds = clientLoans.map(l => l.id);
-
-    // Keep the client record in the clients array so they remain registered
-    // clients = clients.filter(c => c.id !== clientId);
-    loans = loans.filter(l => l.clientId !== clientId);
-    payments = payments.filter(p => !loanIds.includes(p.loanId));
-
+    // 3. Keep local storage clients list updated with archived: true
+    const clients = await this.getClients();
+    clients.forEach(c => {
+      if (c.id === clientId) {
+        c.archived = true;
+      }
+    });
     localStorage.setItem(CLIENTS_KEY, JSON.stringify(clients));
-    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
-    localStorage.setItem(PAYMENTS_KEY, JSON.stringify(payments));
   },
 
   // ADJUST LOAN PAYMENTS AND START DATE (FLEXIBLE ADJUSTMENT)
@@ -887,7 +952,9 @@ export const dbService = {
     const loans = await this.getLoans();
     const payments = await this.getPayments();
 
-    return clients.flatMap(client => {
+    const activeClients = clients.filter(c => !c.archived);
+
+    return activeClients.flatMap(client => {
       // Find all loans for this client, sorted newest first
       const clientLoans = loans
         .filter(l => l.clientId === client.id)
@@ -946,11 +1013,15 @@ export const dbService = {
 
   // CALCULATE FINANCIAL SCORES (MONTH SPLICED AT DAY 02)
   async getFinancialStats(simulationDate: string = getTodayStr()): Promise<FinancialStats> {
+    const clients = await this.getClients();
     const loans = await this.getLoans();
     const payments = await this.getPayments();
     
+    const archivedClientIds = clients.filter(c => c.archived).map(c => c.id);
+    
     // 1. Dinheiro Investido (Soma total do valor principal emprestado de contratos ativos)
     const activeLoans = loans.filter(loan => {
+      if (archivedClientIds.includes(loan.clientId)) return false;
       if (loan.status === "completed") return false;
       const loanPaymentsCount = payments.filter(p => p.loanId === loan.id).length;
       return loanPaymentsCount < loan.totalDays;

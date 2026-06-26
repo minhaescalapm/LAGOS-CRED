@@ -5,9 +5,10 @@ import { getFinancialCycle, formatFriendlyDate, getTodayStr } from "../utils/dat
 
 interface FinancialSummaryProps {
   stats: FinancialStats;
+  onTotalInvestedClick?: () => void;
 }
 
-export function FinancialSummary({ stats }: FinancialSummaryProps) {
+export function FinancialSummary({ stats, onTotalInvestedClick }: FinancialSummaryProps) {
   const currentCycle = getFinancialCycle(getTodayStr());
 
   // Formatar valores como Real Brasileiro (BRL)
@@ -23,7 +24,8 @@ export function FinancialSummary({ stats }: FinancialSummaryProps) {
       {/* CARD 1: DINHEIRO INVESTIDO */}
       <div 
         id="card-money-invested"
-        className="relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300"
+        onClick={onTotalInvestedClick}
+        className={`relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300 ${onTotalInvestedClick ? 'cursor-pointer' : ''}`}
       >
         <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
           <TrendingUp className="w-16 h-16 text-yellow-500" />
