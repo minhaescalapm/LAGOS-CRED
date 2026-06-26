@@ -995,7 +995,7 @@ export const dbService = {
         const elapsedDays = getElapsedDaysExcludingSundays(addDays(loan.startDate, 1), simulationDate, isExcluding); 
         const expectedDaysToPay = Math.max(0, Math.min(elapsedDays, totalDays));
         const daysBehind = Math.max(0, expectedDaysToPay - paidCount);
-        const isDelayed = daysBehind >= 1;
+        const isDelayed = daysBehind >= 2;
 
         return {
           client,
