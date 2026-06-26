@@ -590,8 +590,10 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               {unpaidSchedules.slice(0, 10).map((date, index) => {
                 const isSelected = selectedUnpaidDates.includes(date);
                 const labelDate = formatFriendlyDate(date);
-                const isOverdue = date < getTodayStr();
-                const isTodayDate = date === getTodayStr();
+                const yesterdayStr = addDays(baseToday, -1);
+                const isOverdue = date < yesterdayStr;
+                const isYesterdayDate = date === yesterdayStr;
+                const isTodayDate = date === baseToday;
                 const displayIndex = paidCount + index + 1;
                 
                 return (
@@ -610,7 +612,9 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                         ? "bg-emerald-500/15 border-emerald-500 text-white" 
                         : isOverdue 
                           ? "bg-amber-500/5 hover:bg-amber-500/10 border-amber-500/20 text-zinc-400" 
-                          : "bg-zinc-900/40 hover:bg-zinc-900/60 border-zinc-850 text-zinc-400"
+                          : isYesterdayDate
+                            ? "bg-emerald-500/5 hover:bg-emerald-500/10 border-emerald-500/20 text-zinc-300"
+                            : "bg-zinc-900/40 hover:bg-zinc-900/60 border-zinc-850 text-zinc-400"
                     }`}
                   >
                     <div className="flex justify-between items-center w-full">
@@ -620,11 +624,13 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                       <span className={`text-[8px] px-1 rounded font-black uppercase ${
                         isOverdue 
                           ? "bg-amber-500/10 text-amber-500" 
-                          : isTodayDate 
-                            ? "bg-yellow-500/10 text-yellow-500" 
-                            : "bg-zinc-800 text-zinc-500"
+                          : isYesterdayDate
+                            ? "bg-emerald-500/10 text-emerald-400"
+                            : isTodayDate 
+                              ? "bg-yellow-500/10 text-yellow-500" 
+                              : "bg-zinc-800 text-zinc-500"
                       }`}>
-                        {isOverdue ? "Atraso" : isTodayDate ? "Hoje" : "Futuro"}
+                        {isOverdue ? "Atraso" : isYesterdayDate ? "Ontem" : isTodayDate ? "Hoje" : "Futuro"}
                       </span>
                     </div>
                     
