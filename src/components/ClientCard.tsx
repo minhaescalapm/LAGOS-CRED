@@ -27,7 +27,7 @@ interface ClientCardProps {
   onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => void;
   onToggleSunday?: (loanId: string) => void;
   onCopyContract?: (clientDetail: ClientWithLoanDetails) => void;
-  onRenewLoan?: (oldLoanId: string, amountInvested: number, totalDays: number, dailyRate: number, startDate: string) => Promise<void>;
+  onRenewLoan?: (oldLoanId: string, amountInvested: number, totalDays: number, dailyRate: number, startDate: string, totalAmount?: number) => Promise<void>;
   simulationDate?: string;
 }
 
@@ -72,12 +72,14 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const [adjustedStartDate, setAdjustedStartDate] = useState(() => activeLoan?.startDate || referenceDate || getTodayStr());
   const [adjustedBaseToday, setAdjustedBaseToday] = useState(() => baseToday);
 
-  // States for Contract Renewal
+  // States for Contract Renewal (Simulador de Renovação de Contrato)
   const [isRenewing, setIsRenewing] = useState(false);
-  const [renewDebt, setRenewDebt] = useState(0);
-  const [renewCapital, setRenewCapital] = useState(1000);
-  const [renewInterest, setRenewInterest] = useState(42);
-  const [renewTerm, setRenewTerm] = useState(26);
+  const [renewDebt, setRenewDebt] = useState(0.0); // Default: 0.00
+  const [renewCapital, setRenewCapital] = useState(1000.0); // Default: 1000.00
+  const [renewTerm, setRenewTerm] = useState(26); // Prazo Desejado (Dias) Default: 26
+  const [renewBaseTerm, setRenewBaseTerm] = useState(26); // Prazo Base Padrão (Dias) Default: 26
+  const [renewBaseRate, setRenewBaseRate] = useState(42.0); // Taxa Base Padrão (%) Default: 42.0
+  const [renewExtraRate, setRenewExtraRate] = useState(1.5); // Taxa Extra Diária (%) Default: 1.5
   const [renewStartDate, setRenewStartDate] = useState(() => simulationDate || getTodayStr());
 
   // Synchronize when parent triggers update/save
@@ -93,9 +95,11 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     if (!activeLoan) return;
     const remainingDebt = Math.max(0, activeLoan.totalAmount - (paidCount * activeLoan.dailyRate));
     setRenewDebt(remainingDebt);
-    setRenewCapital(activeLoan.amountInvested);
-    setRenewInterest(42);
+    setRenewCapital(1000.0);
     setRenewTerm(26);
+    setRenewBaseTerm(26);
+    setRenewBaseRate(42.0);
+    setRenewExtraRate(1.5);
     setRenewStartDate(simulationDate || getTodayStr());
     setIsRenewing(true);
     setIsExpandingPay(false);
@@ -265,17 +269,11 @@ Estaremos a Disposição, não perca seu crédito.`;
       ? formatFriendlyDate(referenceDate) 
       : "Nenhuma diária paga";
 
-    // List of selected dates
-    const selectedDaysText = selectedUnpaidDates.length > 0
-      ? selectedUnpaidDates
-          .map((d, idx) => {
-            const isToday = d === baseToday;
-            const dateLabel = formatFriendlyDate(d);
-            const displayIndex = paidCount + unpaidSchedules.indexOf(d) + 1;
-            return `• *Diária #${displayIndex} (${dateLabel})* ${isToday ? "_(Hoje)_" : ""}`;
-          })
-          .join("\n")
-      : `• *Nova Diária*`;
+    const lastUpdateFormatted = paidCount > 0 
+      ? formatFriendlyDate(referenceDate) 
+      : formatFriendlyDate(activeLoan.startDate);
+
+    const todayFormatted = formatFriendlyDate(baseToday);
 
     const messageTemplate = `Olá *${client.name}*, tudo bem?
 Passando para lembrar das parcelas diárias pendentes do seu contrato no valor individual de *R$ ${activeLoan.dailyRate.toFixed(2)}*.
@@ -284,8 +282,8 @@ Passando para lembrar das parcelas diárias pendentes do seu contrato no valor i
 Progresso do Contrato: *${paidCount} de ${totalDays} pagas*
 Sua última diária paga foi em: *${dateFormatted}*
 
-🗓️ *Parcelas em aberto selecionadas para acerto:*
-${selectedDaysText}
+🗓️ *Última atualização dia ${lastUpdateFormatted}, e faltam ${daysBehind} para ficar em dia.*
+_(Cálculo desde a última atualização ${lastUpdateFormatted} até hoje ${todayFormatted})_
 
 🔑 *Nossa Chave Pix (E-mail):*
 lagoscelular5@gmail.com
@@ -1015,16 +1013,32 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
             e.preventDefault();
             if (!onRenewLoan) return;
             try {
-              const lucro = renewCapital * (renewInterest / 100);
-              const totalNovoContrato = renewCapital + lucro;
-              const novaParcelaDiaria = totalNovoContrato / renewTerm;
-              
+              const capital = parseFloat(renewCapital.toString());
+              const prazo = parseInt(renewTerm.toString());
+              const prazoBase = parseInt(renewBaseTerm.toString());
+              let lucroEmReais = 0;
+
+              if (prazo <= prazoBase) {
+                // Regra Padrão (Ex: até 26 dias cobra os 42% fixos)
+                lucroEmReais = capital * (renewBaseRate / 100);
+              } else {
+                // Regra de Prazo Estendido (Ex: 60, 100 dias)
+                const lucroBase = capital * (renewBaseRate / 100); // Lucro dos primeiros 26 dias
+                const diasExtras = prazo - prazoBase;
+                const lucroDiasExtras = capital * (renewExtraRate / 100) * diasExtras; // 1.5% ao dia extra
+                lucroEmReais = lucroBase + lucroDiasExtras;
+              }
+
+              const totalNovoContrato = capital + lucroEmReais;
+              const novaParcelaDiaria = prazo > 0 ? totalNovoContrato / prazo : 0;
+
               await onRenewLoan(
                 activeLoan.id,
-                renewCapital,
-                renewTerm,
+                capital,
+                prazo,
                 Number(novaParcelaDiaria.toFixed(2)),
-                renewStartDate
+                renewStartDate,
+                Number(totalNovoContrato.toFixed(2))
               );
               setIsRenewing(false);
               alert("Renovação concluída com sucesso!");
@@ -1038,7 +1052,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest block flex items-center gap-1.5">
               <RefreshCw className="w-3.5 h-3.5 text-yellow-400 animate-spin-slow" />
-              Simulador de Renovação
+              Simulador de Renovação de Contrato
             </span>
             <button 
               type="button" 
@@ -1078,27 +1092,55 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               />
             </div>
 
-            {/* Taxa de Juros */}
+            {/* Prazo Desejado */}
             <div>
-              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Taxa de Juros (%)</label>
-              <input
-                type="number"
-                min="0"
-                value={renewInterest}
-                onChange={e => setRenewInterest(Number(e.target.value) || 0)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1.5 px-2 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50 font-bold"
-                required
-              />
-            </div>
-
-            {/* Prazo */}
-            <div>
-              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Prazo (Dias)</label>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Prazo Desejado (Dias)</label>
               <input
                 type="number"
                 min="1"
                 value={renewTerm}
                 onChange={e => setRenewTerm(Number(e.target.value) || 0)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1.5 px-2 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50 font-bold"
+                required
+              />
+            </div>
+
+            {/* Prazo Base Padrão */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Prazo Base Padrão (Dias)</label>
+              <input
+                type="number"
+                min="1"
+                value={renewBaseTerm}
+                onChange={e => setRenewBaseTerm(Number(e.target.value) || 0)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1.5 px-2 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50 font-bold"
+                required
+              />
+            </div>
+
+            {/* Taxa Base Padrão */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Taxa Base Padrão (%)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                value={renewBaseRate}
+                onChange={e => setRenewBaseRate(Number(e.target.value) || 0)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1.5 px-2 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50 font-bold"
+                required
+              />
+            </div>
+
+            {/* Taxa Extra Diária */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Taxa Extra Diária (%)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={renewExtraRate}
+                onChange={e => setRenewExtraRate(Number(e.target.value) || 0)}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1.5 px-2 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50 font-bold"
                 required
               />
@@ -1119,38 +1161,59 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
 
           {/* Real-time Math Logic and Output Cards */}
           {(() => {
-            const troco = renewCapital - renewDebt;
-            const lucro = renewCapital * (renewInterest / 100);
-            const totalNovoContrato = renewCapital + lucro;
-            const novaParcelaDiaria = renewTerm > 0 ? totalNovoContrato / renewTerm : 0;
+            const capital = parseFloat(renewCapital.toString());
+            const prazo = parseInt(renewTerm.toString());
+            const prazoBase = parseInt(renewBaseTerm.toString());
+            let lucroEmReais = 0;
+
+            if (prazo <= prazoBase) {
+              // Regra Padrão
+              lucroEmReais = capital * (renewBaseRate / 100);
+            } else {
+              // Regra de Prazo Estendido
+              const lucroBase = capital * (renewBaseRate / 100);
+              const diasExtras = prazo - prazoBase;
+              const lucroDiasExtras = capital * (renewExtraRate / 100) * diasExtras;
+              lucroEmReais = lucroBase + lucroDiasExtras;
+            }
+
+            const trocoCliente = capital - parseFloat(renewDebt.toString());
+            const totalNovoContrato = capital + lucroEmReais;
+            const novaParcelaDiaria = prazo > 0 ? totalNovoContrato / prazo : 0;
+
             const formatCurrency = (val: number) => {
               return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(val);
             };
 
             return (
-              <div className="space-y-2.5 pt-2 border-t border-zinc-800/85">
-                <div className="grid grid-cols-1 gap-2">
+              <div className="space-y-3 pt-3 border-t border-zinc-800/85">
+                <div className="grid grid-cols-1 gap-2.5">
                   {/* Card 1: TROCO NO PIX */}
                   <div className={`p-3 rounded-xl border flex flex-col justify-center items-center text-center ${
-                    troco >= 0 
+                    trocoCliente >= 0 
                       ? "bg-emerald-500/10 border-emerald-500/25" 
                       : "bg-red-500/10 border-red-500/25"
                   }`}>
                     <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider mb-0.5">💰 TROCO NO PIX</span>
-                    <span className={`text-base font-black font-mono ${troco >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                      {formatCurrency(Math.abs(troco))}
+                    <span className={`text-base font-black font-mono ${trocoCliente >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {formatCurrency(trocoCliente)}
                     </span>
                     <span className="text-[8px] text-zinc-500 mt-0.5">
-                      {troco >= 0 ? "Valor a ser transferido ao cliente" : "Cliente precisa inteirar este valor"}
+                      {trocoCliente >= 0 
+                        ? "Valor a ser transferido ao cliente" 
+                        : "Atenção: Cliente precisa inteirar este valor para a renovação!"}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2.5">
                     {/* Card 2: NOVO CONTRATO */}
                     <div className="p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col justify-center items-center text-center">
-                      <span className="text-[8px] text-zinc-400 uppercase font-bold tracking-wider mb-0.5">📄 NOVO CONTRATO</span>
+                      <span className="text-[8px] text-zinc-400 uppercase font-bold tracking-wider mb-0.5">📄 TOTAL DO NOVO CONTRATO</span>
                       <span className="text-xs font-bold font-mono text-zinc-200">
                         {formatCurrency(totalNovoContrato)}
+                      </span>
+                      <span className="text-[8px] text-zinc-500 mt-0.5">
+                        Lucro Projetado: {formatCurrency(lucroEmReais)}
                       </span>
                     </div>
 
@@ -1158,7 +1221,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                     <div className="p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl flex flex-col justify-center items-center text-center">
                       <span className="text-[8px] text-zinc-400 uppercase font-bold tracking-wider mb-0.5">📅 NOVA PARCELA</span>
                       <span className="text-xs font-extrabold font-mono text-yellow-400">
-                        {renewTerm}x de {formatCurrency(novaParcelaDiaria)}
+                        {prazo}x de {formatCurrency(novaParcelaDiaria)}
                       </span>
                     </div>
                   </div>
@@ -1168,7 +1231,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                   type="submit"
                   className="w-full mt-2 py-2.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-xs rounded-lg shadow-lg hover:shadow-yellow-500/15 transition-all cursor-pointer uppercase tracking-wider flex items-center justify-center gap-1.5"
                 >
-                  Efetivar Renovação
+                  Efetivar Novo Contrato
                 </button>
               </div>
             );

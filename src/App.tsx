@@ -260,11 +260,12 @@ export default function App() {
     amountInvested: number,
     totalDays: number,
     dailyRate: number,
-    startDate: string
+    startDate: string,
+    totalAmount?: number
   ) => {
     setIsLoading(true);
     try {
-      await dbService.renewLoan(oldLoanId, amountInvested, totalDays, dailyRate, startDate);
+      await dbService.renewLoan(oldLoanId, amountInvested, totalDays, dailyRate, startDate, totalAmount);
       await refreshData();
     } catch (err: any) {
       console.error("Erro ao renovar contrato:", err);

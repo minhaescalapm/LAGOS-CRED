@@ -395,7 +395,8 @@ export const dbService = {
     amountInvested: number,
     totalDays: number,
     dailyRate: number,
-    startDate: string
+    startDate: string,
+    totalAmount?: number
   ): Promise<Loan> {
     const loans = await this.getLoans();
     const oldLoan = loans.find(l => l.id === oldLoanId);
@@ -404,12 +405,12 @@ export const dbService = {
     }
 
     const clientId = oldLoan.clientId;
-    const totalAmount = Math.round(dailyRate * totalDays);
+    const finalTotalAmount = totalAmount !== undefined ? totalAmount : Math.round(dailyRate * totalDays);
     const newLoan: Loan = {
       id: generateUUID(),
       clientId,
       amountInvested,
-      totalAmount,
+      totalAmount: finalTotalAmount,
       dailyRate,
       totalDays,
       startDate,
@@ -436,7 +437,7 @@ export const dbService = {
             id: newLoan.id,
             client_id: clientId,
             amount_invested: amountInvested,
-            total_amount: totalAmount,
+            total_amount: newLoan.totalAmount,
             daily_rate: dailyRate,
             total_days: totalDays,
             start_date: startDate,
@@ -452,7 +453,7 @@ export const dbService = {
               id: newLoan.id,
               client_id: clientId,
               amount_invested: amountInvested,
-              total_amount: totalAmount,
+              total_amount: newLoan.totalAmount,
               daily_rate: dailyRate,
               total_days: totalDays,
               start_date: startDate,
