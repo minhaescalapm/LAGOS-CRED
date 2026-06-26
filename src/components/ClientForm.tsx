@@ -301,12 +301,11 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     const principalVal = Number(amountInvested) || 0;
     const rateVal = Number(dailyRate) || 0;
     const daysVal = Number(totalDays) || 0;
-    const totalVal = calculatedTotal || (rateVal * daysVal);
 
     const message = `Olá, essa é a simulação de seu valor solicitado.
 
 💵 *Valor solicitado:* R$ ${principalVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-🗓️ *Parcelas:* ${daysVal} diárias de R$ ${rateVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Total de R$ ${totalVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+🗓️ *Parcelas:* ${daysVal} diárias de R$ ${rateVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 
 *Está de acordo?* Envie seu documento com foto, selfie, comprovante de residência.
 
