@@ -175,6 +175,7 @@ export default function App() {
     totalDays: number;
     dailyRate: number;
     startDate: string;
+    alreadyPaidCount?: number;
   }) => {
     if (!editingClient) return;
     setIsLoading(true);
@@ -189,14 +190,26 @@ export default function App() {
           data.dailyRate,
           data.startDate
         );
+
+        if (data.alreadyPaidCount !== undefined) {
+          await dbService.adjustLoanPaymentsAndStartDate(
+            editingClient.activeLoan.id,
+            data.alreadyPaidCount,
+            data.startDate
+          );
+        }
       } else {
-        await dbService.addLoan(
+        const newLoan = await dbService.addLoan(
           editingClient.client.id,
           data.amountInvested,
           data.totalDays,
           data.dailyRate,
           data.startDate
         );
+
+        if (data.alreadyPaidCount && data.alreadyPaidCount > 0) {
+          await dbService.registerPayment(newLoan.id, data.alreadyPaidCount, simulationDate);
+        }
       }
       setEditingClient(null);
       await refreshData();

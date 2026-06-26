@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil, Copy } from "lucide-react";
+import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil, Copy, Send } from "lucide-react";
 import { ClientWithLoanDetails, Client } from "../types";
 import { getTodayStr, getRetroactiveStartDate, addDays, formatFriendlyDate, getElapsedDaysExcludingSundays } from "../utils/dateUtils";
 import { dbService } from "../services/dbService";
@@ -66,7 +66,12 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     return baseToday;
   });
 
-  const [alreadyPaidCount, setAlreadyPaidCount] = useState<number>(0);
+  const [alreadyPaidCount, setAlreadyPaidCount] = useState<number>(() => {
+    if (clientToEdit && !isCopyMode) {
+      return clientToEdit.paidCount;
+    }
+    return 0;
+  });
   const [simClosingDate, setSimClosingDate] = useState(() => baseToday);
   const [simExcludeSundays, setSimExcludeSundays] = useState(true);
 
@@ -287,6 +292,31 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
       value = `(${value}`;
     }
     setPhone(value);
+  };
+
+  const handleSendSimulation = () => {
+    const cleanPhone = phone.replace(/\D/g, "");
+    const formattedPhone = cleanPhone ? `55${cleanPhone}` : "";
+    
+    const principalVal = Number(amountInvested) || 0;
+    const rateVal = Number(dailyRate) || 0;
+    const daysVal = Number(totalDays) || 0;
+    const totalVal = calculatedTotal || (rateVal * daysVal);
+
+    const message = `Olá, essa é a simulação de seu valor solicitado.
+
+💵 *Valor solicitado:* R$ ${principalVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+🗓️ *Parcelas:* ${daysVal} diárias de R$ ${rateVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Total de R$ ${totalVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+
+*Está de acordo?* Envie seu documento com foto, selfie, comprovante de residência.
+
+⚠️ *Pagamentos de segunda a sábado.*`;
+
+    const url = formattedPhone 
+      ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+      
+    window.open(url, "_blank");
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -806,6 +836,21 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
               </div>
             </div>
           </div>
+
+          {/* Enviar Simulação via WhatsApp */}
+          <button
+            type="button"
+            onClick={handleSendSimulation}
+            disabled={!amountInvested || !dailyRate || !totalDays}
+            className={`w-full py-2.5 font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-lg select-none ${
+              (!amountInvested || !dailyRate || !totalDays)
+                ? "bg-zinc-800 text-zinc-500 border border-zinc-700/60 cursor-not-allowed shadow-none"
+                : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/20 hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+            }`}
+          >
+            <Send className="w-3.5 h-3.5 shrink-0" />
+            <span>Enviar Simulação via WhatsApp</span>
+          </button>
 
           {/* Action Buttons */}
           <div className="flex items-center gap-3 pt-3">
