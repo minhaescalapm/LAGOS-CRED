@@ -67,6 +67,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const [isAdjusting, setIsAdjusting] = useState(false);
   const [adjustedPaidCount, setAdjustedPaidCount] = useState(paidCount);
   const [adjustedStartDate, setAdjustedStartDate] = useState(() => activeLoan?.startDate || referenceDate || getTodayStr());
+  const [adjustedBaseToday, setAdjustedBaseToday] = useState(() => baseToday);
 
   // Synchronize when parent triggers update/save
   React.useEffect(() => {
@@ -81,6 +82,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({
 
   React.useEffect(() => {
     setPaymentDate(simulationDate || getTodayStr());
+    setAdjustedBaseToday(simulationDate || getTodayStr());
   }, [simulationDate]);
 
   React.useEffect(() => {
@@ -98,12 +100,12 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     }
   };
 
-  // Smart Calculations for instant preview & single-button adjustments
+  // Smart Calculations for instant preview & single-button adjustments using customizable reference date
   const computedRetroStartDate = activeLoan 
-    ? addDays(getRetroactiveStartDate(baseToday, adjustedPaidCount, isExcludingSundays), -1) 
-    : baseToday;
+    ? addDays(getRetroactiveStartDate(adjustedBaseToday, adjustedPaidCount, isExcludingSundays), -1) 
+    : adjustedBaseToday;
   const elapsedDaysBack = activeLoan 
-    ? getElapsedDaysExcludingSundays(addDays(adjustedStartDate, 1), baseToday, isExcludingSundays) 
+    ? getElapsedDaysExcludingSundays(addDays(adjustedStartDate, 1), adjustedBaseToday, isExcludingSundays) 
     : 0;
   const expectedPaidCount = activeLoan ? Math.max(0, Math.min(elapsedDaysBack, totalDays)) : 0;
 
@@ -161,11 +163,70 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     amountPaid?: number;
   } | null>(null);
 
+  const [receiptClientName, setReceiptClientName] = useState("");
+  const [receiptUpdateDate, setReceiptUpdateDate] = useState("");
+  const [receiptPaidCount, setReceiptPaidCount] = useState<number>(0);
+  const [receiptTotalDays, setReceiptTotalDays] = useState<number>(0);
+  const [receiptAmount, setReceiptAmount] = useState("");
+  const [receiptCustomText, setReceiptCustomText] = useState("");
+
   const formatBRL = (val: number) => {
     return new Intl.NumberFormat("pt-BR", {
       style: "currency",
       currency: "BRL"
     }).format(val);
+  };
+
+  const formatDDMM = (dateStr: string) => {
+    if (!dateStr) return "";
+    const parts = dateStr.split("-");
+    if (parts.length !== 3) return dateStr;
+    return `${parts[2]}/${parts[1]}`;
+  };
+
+  React.useEffect(() => {
+    if (lastReceiptDetails) {
+      const name = client.name.toUpperCase();
+      const refDateFormatted = formatDDMM(lastReceiptDetails.referenceDate);
+      const paid = lastReceiptDetails.x;
+      const total = lastReceiptDetails.y;
+      const amt = formatBRL(lastReceiptDetails.amountPaid || (activeLoan?.dailyRate || 0));
+
+      setReceiptClientName(name);
+      setReceiptUpdateDate(refDateFormatted);
+      setReceiptPaidCount(paid);
+      setReceiptTotalDays(total);
+      setReceiptAmount(amt);
+      
+      const msg = `${name}
+ULTIMA ATUALIZAÇÃO ${refDateFormatted}
+PAGAS ${paid}/${total}
+VALOR: ${amt}
+
+FAÇA SEU PIX: lagoscelular5@gmail.com
+
+Estaremos a Disposição, não perca seu crédito.`;
+      setReceiptCustomText(msg);
+    }
+  }, [lastReceiptDetails, client.name, activeLoan?.dailyRate]);
+
+  // Regenerate receipt custom text when individual state values are changed
+  const handleReceiptFieldChange = (
+    name: string,
+    upDate: string,
+    paid: number,
+    total: number,
+    amt: string
+  ) => {
+    const msg = `${name}
+ULTIMA ATUALIZAÇÃO ${upDate}
+PAGAS ${paid}/${total}
+VALOR: ${amt}
+
+FAÇA SEU PIX: lagoscelular5@gmail.com
+
+Estaremos a Disposição, não perca seu crédito.`;
+    setReceiptCustomText(msg);
   };
 
   // Handler for sending exact WhatsApp billing message (Step 5 template)
@@ -296,30 +357,9 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
 
   // WhatsApp receipt generator
   const handleSendReceipt = () => {
-    if (!lastReceiptDetails) return;
-    
+    if (!receiptCustomText) return;
     const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
-    const formatDDMM = (dateStr: string) => {
-      if (!dateStr) return "";
-      const parts = dateStr.split("-");
-      if (parts.length !== 3) return dateStr;
-      return `${parts[2]}/${parts[1]}`;
-    };
-
-    const formattedRefDate = formatDDMM(lastReceiptDetails.referenceDate);
-    const clientNameUpper = client.name.toUpperCase();
-    const formattedAmount = formatBRL(lastReceiptDetails.amountPaid || (activeLoan?.dailyRate || 0));
-
-    const receiptMsg = `${clientNameUpper}
-ULTIMA ATUALIZAÇÃO ${formattedRefDate}
-PAGAS ${lastReceiptDetails.x}/${lastReceiptDetails.y}
-VALOR: ${formattedAmount}
-
-FAÇA SEU PIX: lagoscelular5@gmail.com
-
-Estaremos a Disposição, não perca seu crédito.`;
-
-    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(receiptMsg)}`;
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(receiptCustomText)}`;
     window.open(url, "_blank");
     setShowWhatsappReceipt(false);
   };
@@ -605,19 +645,121 @@ Estaremos a Disposição, não perca seu crédito.`;
         )}
       </div>
 
-      {/* COMPROVANTE WHATSAPP NOTIFIER */}
+      {/* COMPROVANTE WHATSAPP NOTIFIER & INTERACTIVE PREVIEW EDITOR */}
       {showWhatsappReceipt && lastReceiptDetails && (
-        <div className="p-3 bg-yellow-500/5 border border-yellow-500/10 rounded-xl flex items-center justify-between text-xs animate-fade-in">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-            <span className="text-zinc-350 text-[10px] font-bold">Comprovante de pagamento pronto!</span>
+        <div className="p-4 bg-zinc-950/90 border border-yellow-500/35 rounded-2xl space-y-4 animate-fade-in shadow-xl select-none">
+          <div className="flex items-center justify-between border-b border-zinc-900 pb-2">
+            <span className="text-[10px] font-black text-yellow-500 uppercase tracking-widest flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5 text-yellow-500" />
+              Editar Comprovante do WhatsApp
+            </span>
+            <button 
+              type="button"
+              onClick={() => setShowWhatsappReceipt(false)}
+              className="text-[10px] text-zinc-500 hover:text-zinc-350 font-bold uppercase tracking-wider transition-colors cursor-pointer"
+            >
+              Fechar
+            </button>
           </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            {/* Nome do Cliente */}
+            <div className="col-span-2">
+              <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">Nome do Cliente</label>
+              <input 
+                type="text" 
+                value={receiptClientName}
+                onChange={(e) => {
+                  const newVal = e.target.value.toUpperCase();
+                  setReceiptClientName(newVal);
+                  handleReceiptFieldChange(newVal, receiptUpdateDate, receiptPaidCount, receiptTotalDays, receiptAmount);
+                }}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2.5 text-xs text-white font-sans focus:outline-none focus:border-yellow-500/50"
+              />
+            </div>
+
+            {/* Ultima Atualização */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">Última Atualização</label>
+              <input 
+                type="text" 
+                value={receiptUpdateDate}
+                onChange={(e) => {
+                  const newVal = e.target.value;
+                  setReceiptUpdateDate(newVal);
+                  handleReceiptFieldChange(receiptClientName, newVal, receiptPaidCount, receiptTotalDays, receiptAmount);
+                }}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2.5 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50"
+              />
+            </div>
+
+            {/* Valor */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">Valor</label>
+              <input 
+                type="text" 
+                value={receiptAmount}
+                onChange={(e) => {
+                  const newVal = e.target.value;
+                  setReceiptAmount(newVal);
+                  handleReceiptFieldChange(receiptClientName, receiptUpdateDate, receiptPaidCount, receiptTotalDays, newVal);
+                }}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2.5 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50"
+              />
+            </div>
+
+            {/* Pagas */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">Pagas</label>
+              <input 
+                type="number" 
+                value={receiptPaidCount}
+                onChange={(e) => {
+                  const newVal = Number(e.target.value) || 0;
+                  setReceiptPaidCount(newVal);
+                  handleReceiptFieldChange(receiptClientName, receiptUpdateDate, newVal, receiptTotalDays, receiptAmount);
+                }}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2.5 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50"
+              />
+            </div>
+
+            {/* Total */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">Total</label>
+              <input 
+                type="number" 
+                value={receiptTotalDays}
+                onChange={(e) => {
+                  const newVal = Number(e.target.value) || 0;
+                  setReceiptTotalDays(newVal);
+                  handleReceiptFieldChange(receiptClientName, receiptUpdateDate, receiptPaidCount, newVal, receiptAmount);
+                }}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2.5 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50"
+              />
+            </div>
+          </div>
+
+          {/* Text Area for Full Manual Edit */}
+          <div className="space-y-1">
+            <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block flex justify-between items-center">
+              <span>Texto Completo da Mensagem</span>
+              <span className="text-zinc-500 text-[8px] lowercase font-normal italic">Pode editar livremente abaixo</span>
+            </label>
+            <textarea
+              value={receiptCustomText}
+              onChange={(e) => setReceiptCustomText(e.target.value)}
+              rows={9}
+              className="w-full bg-zinc-900/80 border border-zinc-800 rounded-lg p-2.5 text-xs text-zinc-200 font-mono focus:outline-none focus:border-yellow-500/50 resize-none leading-relaxed"
+            />
+          </div>
+
           <button
+            type="button"
             onClick={handleSendReceipt}
-            className="px-2.5 py-1 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-[10px] rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/20 transition-all cursor-pointer uppercase tracking-wider"
           >
-            <Smartphone className="w-3 h-3" />
-            Enviar WhatsApp
+            <Smartphone className="w-4 h-4 text-white" />
+            Enviar Comprovante via WhatsApp
           </button>
         </div>
       )}
@@ -748,7 +890,7 @@ Estaremos a Disposição, não perca seu crédito.`;
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-3 gap-2">
             {/* Parcelas Jás Pagas */}
             <div>
               <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Parcelas já pagas</label>
@@ -756,7 +898,7 @@ Estaremos a Disposição, não perca seu crédito.`;
                 <button
                   type="button"
                   onClick={() => setAdjustedPaidCount(p => Math.max(0, p - 1))}
-                  className="px-2.5 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-white font-black cursor-pointer text-xs"
+                  className="px-2 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-white font-black cursor-pointer text-xs"
                 >
                   -
                 </button>
@@ -766,12 +908,12 @@ Estaremos a Disposição, não perca seu crédito.`;
                   max={totalDays}
                   value={adjustedPaidCount}
                   onChange={e => setAdjustedPaidCount(Math.min(totalDays, Math.max(0, Number(e.target.value) || 0)))}
-                  className="w-full text-center bg-transparent text-xs font-mono font-bold text-white border-none focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-extrabold"
+                  className="w-full text-center bg-transparent text-[11px] font-mono font-bold text-white border-none focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-extrabold"
                 />
                 <button
                   type="button"
                   onClick={() => setAdjustedPaidCount(p => Math.min(totalDays, p + 1))}
-                  className="px-2.5 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-white font-black cursor-pointer text-xs"
+                  className="px-2 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-white font-black cursor-pointer text-xs"
                 >
                   +
                 </button>
@@ -780,12 +922,23 @@ Estaremos a Disposição, não perca seu crédito.`;
 
             {/* Data Inicial */}
             <div>
-              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Data Início Contrato</label>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Início Contrato</label>
               <input
                 type="date"
                 value={adjustedStartDate}
                 onChange={e => setAdjustedStartDate(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-2 text-xs text-white font-mono focus:outline-none cursor-pointer h-[34px] font-bold"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-1.5 text-[11px] text-white font-mono focus:outline-none cursor-pointer h-[34px] font-bold"
+              />
+            </div>
+
+            {/* Data Base/Fim */}
+            <div>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Fim (Referência)</label>
+              <input
+                type="date"
+                value={adjustedBaseToday}
+                onChange={e => setAdjustedBaseToday(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-1.5 text-[11px] text-white font-mono focus:outline-none cursor-pointer h-[34px] font-bold"
               />
             </div>
           </div>
@@ -797,7 +950,7 @@ Estaremos a Disposição, não perca seu crédito.`;
             {/* Retroactive Date Calculation button */}
             <div className="space-y-1.5">
               <p className="text-zinc-400">
-                Para ficar <strong className="text-emerald-400 font-extrabold uppercase">EM DIA</strong> hoje com <span className="text-white font-extrabold">{adjustedPaidCount} parcelas pagas</span>, o contrato começaria em: <span className="text-yellow-500 font-extrabold">{formatFriendlyDate(computedRetroStartDate)}</span>.
+                Para ficar <strong className="text-emerald-400 font-extrabold uppercase">EM DIA</strong> em <span className="text-white font-extrabold">{formatFriendlyDate(adjustedBaseToday)}</span> com <span className="text-white font-extrabold">{adjustedPaidCount} parcelas pagas</span>, o contrato começaria em: <span className="text-yellow-500 font-extrabold">{formatFriendlyDate(computedRetroStartDate)}</span>.
               </p>
               <button
                 type="button"
@@ -811,7 +964,7 @@ Estaremos a Disposição, não perca seu crédito.`;
             {/* Retroactive Paid Count Calculation button */}
             <div className="space-y-1.5 border-t border-zinc-800/80 pt-3">
               <p className="text-zinc-400">
-                Para ficar <strong className="text-emerald-400 font-extrabold uppercase">EM DIA</strong> hoje com início em <span className="text-white font-extrabold">{formatFriendlyDate(adjustedStartDate)}</span>, o total pago deveria ser: <span className="text-yellow-500 font-extrabold">{expectedPaidCount} parcelas</span>.
+                Para ficar <strong className="text-emerald-400 font-extrabold uppercase">EM DIA</strong> em <span className="text-white font-extrabold">{formatFriendlyDate(adjustedBaseToday)}</span> com início em <span className="text-white font-extrabold">{formatFriendlyDate(adjustedStartDate)}</span>, o total pago deveria ser: <span className="text-yellow-500 font-extrabold">{expectedPaidCount} parcelas</span>.
               </p>
               <button
                 type="button"

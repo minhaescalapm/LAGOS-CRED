@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil, Copy } from "lucide-react";
 import { ClientWithLoanDetails, Client } from "../types";
-import { getTodayStr, getRetroactiveStartDate, addDays, formatFriendlyDate } from "../utils/dateUtils";
+import { getTodayStr, getRetroactiveStartDate, addDays, formatFriendlyDate, getElapsedDaysExcludingSundays } from "../utils/dateUtils";
 import { dbService } from "../services/dbService";
 
 interface ClientFormProps {
@@ -67,16 +67,45 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
   });
 
   const [alreadyPaidCount, setAlreadyPaidCount] = useState<number>(0);
+  const [simClosingDate, setSimClosingDate] = useState(() => baseToday);
+  const [simExcludeSundays, setSimExcludeSundays] = useState(true);
+
+  // Synchronize when simulationDate changes
+  useEffect(() => {
+    setSimClosingDate(simulationDate || getTodayStr());
+  }, [simulationDate]);
+
+  const recalculateRetroStartDate = (count: number, closingDate: string, exclude: boolean) => {
+    const validCount = Math.max(0, count);
+    if (validCount > 0) {
+      const calculated = addDays(getRetroactiveStartDate(closingDate, validCount, exclude), -1);
+      setStartDate(calculated);
+    } else {
+      setStartDate(closingDate);
+    }
+  };
 
   const handleAlreadyPaidCountChange = (count: number) => {
     const validCount = Math.max(0, count);
     setAlreadyPaidCount(validCount);
-    if (validCount > 0) {
-      const calculated = addDays(getRetroactiveStartDate(baseToday, validCount, true), -1);
-      setStartDate(calculated);
-    } else {
-      setStartDate(baseToday);
-    }
+    recalculateRetroStartDate(validCount, simClosingDate, simExcludeSundays);
+  };
+
+  const handleSimClosingDateChange = (dateVal: string) => {
+    setSimClosingDate(dateVal);
+    recalculateRetroStartDate(alreadyPaidCount, dateVal, simExcludeSundays);
+  };
+
+  const handleStartDateChangeDirect = (newStart: string) => {
+    setStartDate(newStart);
+    // Calculate expected paid count between newStart and simClosingDate
+    const elapsed = getElapsedDaysExcludingSundays(addDays(newStart, 1), simClosingDate, simExcludeSundays);
+    setAlreadyPaidCount(Math.max(0, Math.min(elapsed, totalDays)));
+  };
+
+  const handleSimExcludeSundaysChange = (checked: boolean) => {
+    setSimExcludeSundays(checked);
+    recalculateRetroStartDate(alreadyPaidCount, simClosingDate, checked);
   };
 
   const [error, setError] = useState("");
@@ -587,7 +616,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                     <input 
                       type="date"
                       value={startDate}
-                      onChange={e => setStartDate(e.target.value)}
+                      onChange={e => handleStartDateChangeDirect(e.target.value)}
                       className="w-full bg-zinc-950/60 border border-zinc-855 focus:border-amber-400 focus:outline-none rounded-xl py-2 px-3 text-sm text-zinc-100 transition-colors cursor-pointer h-[42px]"
                       required
                     />
@@ -620,28 +649,103 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
 
           {/* SIMULADOR DE PRESTAÇÕES JÁ PAGAS - ALWAYS VISIBLE FOR NEW CLIENTS */}
           {(!clientToEdit || isCopyMode) && (
-            <div className="bg-amber-400/5 border border-amber-400/20 p-4 rounded-2xl space-y-3 animate-fade-in select-none">
+            <div className="bg-amber-400/5 border border-amber-400/20 p-4 rounded-2xl space-y-4 animate-fade-in">
               <div className="flex justify-between items-center select-none">
                 <span className="text-[10px] text-amber-400 font-extrabold uppercase tracking-widest block flex items-center gap-1.5">
                   🔄 Simulador de Prestações Já Pagas
                 </span>
-                <span className="text-[9px] text-zinc-550 font-mono font-bold uppercase">Contar retroativo</span>
+                <span className="text-[9px] text-amber-500/80 font-mono font-extrabold uppercase tracking-widest">
+                  Bidirecional Inteligente
+                </span>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="relative shrink-0">
-                  <input 
-                    type="number"
-                    id="already-paid-count-field"
-                    min="0"
-                    max={totalDays}
-                    placeholder="0"
-                    value={alreadyPaidCount === 0 ? "" : alreadyPaidCount}
-                    onChange={e => handleAlreadyPaidCountChange(Number(e.target.value) || 0)}
-                    className="w-20 bg-zinc-950/80 border border-zinc-800 focus:border-amber-400 focus:outline-none rounded-xl py-2 px-3 text-center text-sm font-mono font-extrabold text-amber-400"
+
+              <div className="grid grid-cols-2 gap-3.5">
+                {/* Parcelas Já Pagas */}
+                <div>
+                  <label className="text-[9px] text-zinc-400 font-extrabold uppercase tracking-wider block mb-1">
+                    Parcelas Já Pagas (Diárias)
+                  </label>
+                  <div className="flex items-center bg-zinc-950/80 border border-zinc-800 focus-within:border-amber-400/50 rounded-xl overflow-hidden h-[34px]">
+                    <button
+                      type="button"
+                      onClick={() => handleAlreadyPaidCountChange(Math.max(0, alreadyPaidCount - 1))}
+                      className="px-2.5 py-1 hover:bg-zinc-900 text-zinc-400 hover:text-white font-black cursor-pointer text-xs animate-none select-none"
+                    >
+                      -
+                    </button>
+                    <input 
+                      type="number"
+                      min="0"
+                      max={totalDays}
+                      placeholder="0"
+                      value={alreadyPaidCount}
+                      onChange={e => handleAlreadyPaidCountChange(Number(e.target.value) || 0)}
+                      className="w-full bg-transparent text-center text-xs font-mono font-extrabold text-amber-400 border-none focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAlreadyPaidCountChange(Math.min(totalDays, alreadyPaidCount + 1))}
+                      className="px-2.5 py-1 hover:bg-zinc-900 text-zinc-400 hover:text-white font-black cursor-pointer text-xs animate-none select-none"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Excluir domingos check */}
+                <div className="flex flex-col justify-end">
+                  <label className="text-[9px] text-zinc-400 font-extrabold uppercase tracking-wider block mb-1">
+                    Isenção de Domingos
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handleSimExcludeSundaysChange(!simExcludeSundays)}
+                    className={`w-full h-[34px] rounded-xl border font-bold text-[10px] uppercase transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                      simExcludeSundays 
+                        ? "bg-amber-400/10 border-amber-400/30 text-amber-400" 
+                        : "bg-zinc-950/40 border-zinc-850 text-zinc-500 hover:text-zinc-400 hover:border-zinc-800"
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${simExcludeSundays ? "bg-amber-400 animate-pulse" : "bg-zinc-650"}`} />
+                    {simExcludeSundays ? "Domingos Isentos" : "Domingos Cobrados"}
+                  </button>
+                </div>
+
+                {/* Data de Início (Liberação) */}
+                <div>
+                  <label className="text-[9px] text-zinc-400 font-extrabold uppercase tracking-wider block mb-1">
+                    📅 Início (Liberação)
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={e => handleStartDateChangeDirect(e.target.value)}
+                    className="w-full h-[34px] bg-zinc-950/80 border border-zinc-800 focus:border-amber-400/50 focus:outline-none rounded-xl px-2.5 text-xs text-white font-mono font-bold cursor-pointer"
                   />
                 </div>
-                <div className="text-xs text-zinc-300 font-medium leading-normal">
-                  Se o cliente já pagou <strong className="text-amber-400 font-bold">{alreadyPaidCount} diárias</strong>, calculamos o empréstimo iniciando em <strong className="text-zinc-100 underline decoration-amber-400 decoration-2 font-mono">{formatFriendlyDate(startDate)}</strong> para fechar hoje (Domingos inclusos no intervalo, porém isentos).
+
+                {/* Data de Referência (Fechamento/Fim) */}
+                <div>
+                  <label className="text-[9px] text-zinc-400 font-extrabold uppercase tracking-wider block mb-1">
+                    📅 Fechamento (Fim)
+                  </label>
+                  <input
+                    type="date"
+                    value={simClosingDate}
+                    onChange={e => handleSimClosingDateChange(e.target.value)}
+                    className="w-full h-[34px] bg-zinc-950/80 border border-zinc-800 focus:border-amber-400/50 focus:outline-none rounded-xl px-2.5 text-xs text-white font-mono font-bold cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {/* Explicação Inteligente em tempo real */}
+              <div className="text-[10px] text-zinc-350 bg-zinc-950/40 border border-zinc-800/40 rounded-xl p-2.5 leading-relaxed font-mono select-none">
+                <span className="text-amber-400 font-black uppercase text-[8px] tracking-wider block mb-1">Resumo do cálculo inteligente:</span>
+                Se o cliente já pagou <strong className="text-white font-extrabold underline decoration-amber-400">{alreadyPaidCount} parcelas</strong> para ficar em dia até <span className="text-amber-400 font-bold">{formatFriendlyDate(simClosingDate)}</span>, o contrato precisa iniciar em <span className="text-amber-400 font-bold underline">{formatFriendlyDate(startDate)}</span>.
+                <div className="text-[9px] text-zinc-500 mt-1 italic">
+                  {simExcludeSundays 
+                    ? "ℹ️ Domingos são pulados (isentos) na contagem dos dias para trás." 
+                    : "ℹ️ Domingos são cobrados (inclusos) na contagem dos dias para trás."}
                 </div>
               </div>
             </div>
