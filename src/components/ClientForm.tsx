@@ -116,7 +116,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
   const [filteredSuggestions, setFilteredSuggestions] = useState<Client[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(
-    clientToEdit ? clientToEdit.client.id : null
+    (clientToEdit && !isCopyMode) ? clientToEdit.client.id : null
   );
 
   // Load registered clients on mount

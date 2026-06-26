@@ -88,6 +88,16 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   }, [paidCount]);
 
   React.useEffect(() => {
+    if (activeLoan) {
+      setAdjustedStartDate(activeLoan.startDate);
+    }
+  }, [activeLoan?.startDate]);
+
+  React.useEffect(() => {
+    setAdjustedBaseToday(baseToday);
+  }, [baseToday]);
+
+  React.useEffect(() => {
     setRenewStartDate(simulationDate || getTodayStr());
   }, [simulationDate]);
 

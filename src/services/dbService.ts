@@ -602,7 +602,7 @@ export const dbService = {
       
     const paidCount = loanPayments.length;
     if (paidCount > 0) {
-      await this.adjustLoan(loanId, paidCount, loan.startDate);
+      await this.adjustLoanPaymentsAndStartDate(loanId, paidCount, loan.startDate);
     }
     
     return newToggle;
@@ -810,7 +810,8 @@ export const dbService = {
           if (insErr) throw insErr;
         }
       } catch (err: any) {
-        console.warn("Error updating in Supabase, continuing locally:", err);
+        console.error("Error updating in Supabase during contract adjustment:", err);
+        throw new Error(`Erro ao reajustar contrato no Supabase: ${err.message || err}`);
       }
     }
 
