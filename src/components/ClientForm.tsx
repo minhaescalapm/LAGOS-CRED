@@ -567,7 +567,6 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                       <input
                         type="number"
                         min="0"
-                        max="150"
                         value={interestRate}
                         onChange={e => handleInterestChange(Math.max(0, Number(e.target.value) || 0))}
                         className="w-14 bg-zinc-900 border border-zinc-800 focus:outline-none rounded-lg px-1.5 py-0.5 text-center text-xs font-mono font-bold text-amber-400"
