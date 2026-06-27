@@ -639,14 +639,7 @@ export const dbService = {
       startingRefDate = loanPayments[loanPayments.length - 1].referenceDate;
     }
 
-    // Allocate the actual count to register (cannot exceed remaining days)
-    // If client pays on Saturday, add an extra day of credit
-    let extraCount = 0;
-    if (isSaturday(paymentDate)) {
-      extraCount = 1;
-    }
-
-    const daysToRegister = Math.min(dailyCount + extraCount, loan.totalDays - countAlreadyPaid);
+    const daysToRegister = Math.min(dailyCount, loan.totalDays - countAlreadyPaid);
     const newPayments: Payment[] = [];
 
     const isExcluding = loan.excludeSundays !== false;
