@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { ClientWithLoanDetails, FinancialStats, Loan, Payment } from "../types";
+import { getFinancialCycle, getTodayStr } from "../utils/dateUtils";
 import { 
   TrendingUp, 
   ArrowDownCircle, 
@@ -60,6 +61,17 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
     const profitRatio = (loan.totalAmount - loan.amountInvested) / loan.totalAmount;
     return pSum + (pay.amount * profitRatio);
   }, 0);
+
+  // Profit realized in current month's cycle (Starts on day 02)
+  const currentMonthCycle = getFinancialCycle(getTodayStr());
+  const realizedProfitThisMonth = allPayments
+    .filter(p => p.paymentDate >= currentMonthCycle.start && p.paymentDate <= currentMonthCycle.end)
+    .reduce((pSum, pay) => {
+      const loan = allLoans.find(l => l.id === pay.loanId);
+      if (!loan || loan.amountInvested === 0) return pSum;
+      const profitRatio = (loan.totalAmount - loan.amountInvested) / loan.totalAmount;
+      return pSum + (pay.amount * profitRatio);
+    }, 0);
 
   // 2. Metrics for Pagantes (Up-to-Date) vs Inadimplentes (Delayed)
   const activeClients = clientsWithLoans.filter(c => c.activeLoan !== null);
@@ -141,8 +153,8 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
   return (
     <div className="space-y-6 select-none animate-fade-in text-zinc-100">
       
-      {/* SECTION 1: FINANCIAL FLOW CARD ROW (Entrada, Saída, Lucro) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* SECTION 1: FINANCIAL FLOW CARD ROW */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         
         {/* CARD 1: ENTRADAS */}
         <div className="bg-zinc-950/40 border border-zinc-850 p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-emerald-500/30 transition-all">
@@ -156,7 +168,7 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
             <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Entradas (Repasses Coletados)</span>
           </div>
           <div>
-            <h3 className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono tracking-tight">
+            <h3 className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono tracking-tight text-emerald-450">
               {formatBRL(totalReceived)}
             </h3>
             <p className="text-[10px] text-zinc-500 mt-1">Soma total de todas as parcelas pagas no caixa</p>
@@ -182,7 +194,26 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
           </div>
         </div>
 
-        {/* CARD 3: LUCRO REALIZADO */}
+        {/* CARD 3: VALOR A RECEBER (TODOS APORTES) */}
+        <div className="bg-zinc-950/40 border border-zinc-850 p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-sky-500/30 transition-all">
+          <div className="absolute top-0 right-0 p-3 opacity-5">
+            <Coins className="w-16 h-16 text-sky-400" />
+          </div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-2 bg-sky-500/10 text-sky-400 rounded-lg">
+              <Coins className="w-4 h-4" />
+            </div>
+            <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Valor a Receber (Todos Aportes)</span>
+          </div>
+          <div>
+            <h3 className="text-2xl sm:text-3xl font-black text-sky-400 font-mono tracking-tight">
+              {formatBRL(stats.futureProjections)}
+            </h3>
+            <p className="text-[10px] text-zinc-500 mt-1">Total pendente a receber dos contratos ativos</p>
+          </div>
+        </div>
+
+        {/* CARD 4: LUCRO REALIZADO DE JUROS */}
         <div className="bg-zinc-950/40 border border-zinc-850 p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-amber-400/30 transition-all">
           <div className="absolute top-0 right-0 p-3 opacity-5">
             <Award className="w-16 h-16 text-amber-400" />
@@ -198,6 +229,25 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
               {formatBRL(realizedProfitExact)}
             </h3>
             <p className="text-[10px] text-zinc-500 mt-1">Total de juros líquido recuperado dos pagamentos</p>
+          </div>
+        </div>
+
+        {/* CARD 5: LUCRO MENSAL */}
+        <div className="bg-zinc-950/40 border border-zinc-850 p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-violet-500/30 transition-all">
+          <div className="absolute top-0 right-0 p-3 opacity-5">
+            <PiggyBank className="w-16 h-16 text-violet-400" />
+          </div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="p-2 bg-violet-500/10 text-violet-400 rounded-lg">
+              <PiggyBank className="w-4 h-4" />
+            </div>
+            <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Lucro Mensal (Mês Atual)</span>
+          </div>
+          <div>
+            <h3 className="text-2xl sm:text-3xl font-black text-violet-400 font-mono tracking-tight">
+              {formatBRL(realizedProfitThisMonth)}
+            </h3>
+            <p className="text-[10px] text-zinc-500 mt-1">Juros líquidos recuperados no ciclo atual (Dia 02)</p>
           </div>
         </div>
 

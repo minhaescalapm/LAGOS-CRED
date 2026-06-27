@@ -101,13 +101,39 @@ export default function App() {
 
       const activeClientIds = list.map(item => item.client.id);
       const filteredLoans = (fetchedLoans as Loan[]).filter(l => activeClientIds.includes(l.clientId));
-      const filteredLoansIds = filteredLoans.map(l => l.id);
+      
+      // Deduplicate loans by id
+      const seenLoanIds = new Set<string>();
+      const deduplicatedLoans = filteredLoans.filter(l => {
+        if (seenLoanIds.has(l.id)) return false;
+        seenLoanIds.add(l.id);
+        return true;
+      });
+
+      const filteredLoansIds = deduplicatedLoans.map(l => l.id);
       const filteredPayments = (fetchedPayments as Payment[]).filter(p => filteredLoansIds.includes(p.loanId));
 
-      setClientsWithLoans(list);
+      // Deduplicate payments by id
+      const seenPaymentIds = new Set<string>();
+      const deduplicatedPayments = filteredPayments.filter(p => {
+        if (seenPaymentIds.has(p.id)) return false;
+        seenPaymentIds.add(p.id);
+        return true;
+      });
+
+      // Deduplicate list details to avoid duplicate client/loan pairings or keys
+      const seenDetailsKeys = new Set<string>();
+      const deduplicatedList = list.filter(item => {
+        const key = item.activeLoan ? `loan-${item.activeLoan.id}` : `client-${item.client.id}`;
+        if (seenDetailsKeys.has(key)) return false;
+        seenDetailsKeys.add(key);
+        return true;
+      });
+
+      setClientsWithLoans(deduplicatedList);
       setStats(financialStats);
-      setAllLoans(filteredLoans);
-      setAllPayments(filteredPayments);
+      setAllLoans(deduplicatedLoans);
+      setAllPayments(deduplicatedPayments);
     } catch (err) {
       console.error("Erro ao carregar dados financeiros:", err);
     } finally {

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ClientWithLoanDetails, Loan, Payment } from "../types";
-import { Trash2, ArrowLeft, Search, Calendar, User, TrendingUp, AlertTriangle, CheckCircle, Info } from "lucide-react";
+import { Trash2, ArrowLeft, Search, Calendar, User, TrendingUp, AlertTriangle, CheckCircle, Info, Coins, ArrowUpRight, PiggyBank } from "lucide-react";
 
 interface InvestmentsDetailsProps {
   clientsWithLoans: ClientWithLoanDetails[];
@@ -65,6 +65,19 @@ export function InvestmentsDetails({ clientsWithLoans, allLoans, onDeleteLoan, o
   const overallActiveInvested = clientInvestments.reduce((sum, ci) => sum + ci.totalActiveInvested, 0);
   const overallTotalLoansCount = clientInvestments.reduce((sum, ci) => sum + ci.loans.length, 0);
 
+  // Advanced aggregated calculations for active investments
+  const activeLoans = allLoans.filter(l => l.status !== "completed");
+  const totalActiveInvestedAmount = activeLoans.reduce((sum, l) => sum + l.amountInvested, 0);
+  const totalToReceiveAmount = activeLoans.reduce((sum, l) => sum + (l.totalAmount || (l.dailyRate * l.totalDays)), 0);
+  const totalActiveProfitAmount = activeLoans.reduce((sum, l) => sum + ((l.totalAmount || (l.dailyRate * l.totalDays)) - l.amountInvested), 0);
+  
+  const monthlyProfitEstimate = activeLoans.reduce((sum, l) => {
+    if (l.totalDays <= 0) return sum;
+    const totalReturn = l.totalAmount || (l.dailyRate * l.totalDays);
+    const profitPerDay = (totalReturn - l.amountInvested) / l.totalDays;
+    return sum + (profitPerDay * 30);
+  }, 0);
+
   return (
     <div className="space-y-6 select-none animate-fade-in">
       {/* HEADER BAR */}
@@ -96,6 +109,57 @@ export function InvestmentsDetails({ clientsWithLoans, allLoans, onDeleteLoan, o
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-zinc-900 border border-zinc-800 focus:border-amber-400 focus:outline-none rounded-xl py-2 pl-10 pr-4 text-xs text-zinc-100 placeholder-zinc-500 transition-colors"
           />
+        </div>
+      </div>
+
+      {/* SUMMARY STATS FOR APORTES / INVESTIMENTOS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* CARD 1: TOTAL APORTADO (INVESTIDO) */}
+        <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-yellow-500/30 transition-all">
+          <div className="absolute top-0 right-0 p-3 opacity-5">
+            <Coins className="w-12 h-12 text-yellow-500" />
+          </div>
+          <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Total de Aportes Ativos</span>
+          <div className="mt-2">
+            <h3 className="text-xl sm:text-2xl font-black text-white font-mono tracking-tight">{formatBRL(totalActiveInvestedAmount)}</h3>
+            <p className="text-[9px] text-zinc-550 mt-1">Capital principal de contratos ativos</p>
+          </div>
+        </div>
+
+        {/* CARD 2: TOTAL A RECEBER */}
+        <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-emerald-500/30 transition-all">
+          <div className="absolute top-0 right-0 p-3 opacity-5">
+            <ArrowUpRight className="w-12 h-12 text-emerald-400" />
+          </div>
+          <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Total a Receber (Retorno)</span>
+          <div className="mt-2">
+            <h3 className="text-xl sm:text-2xl font-black text-emerald-400 font-mono tracking-tight">{formatBRL(totalToReceiveAmount)}</h3>
+            <p className="text-[9px] text-zinc-550 mt-1">Retorno bruto total esperado</p>
+          </div>
+        </div>
+
+        {/* CARD 3: LUCRO TOTAL ESTIMADO */}
+        <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-amber-400/30 transition-all">
+          <div className="absolute top-0 right-0 p-3 opacity-5">
+            <TrendingUp className="w-12 h-12 text-amber-400" />
+          </div>
+          <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Lucro Total Estimado</span>
+          <div className="mt-2">
+            <h3 className="text-xl sm:text-2xl font-black text-amber-400 font-mono tracking-tight">{formatBRL(totalActiveProfitAmount)}</h3>
+            <p className="text-[9px] text-zinc-550 mt-1">Juros totais projetados no vencimento</p>
+          </div>
+        </div>
+
+        {/* CARD 4: LUCRO MENSAL ESTIMADO */}
+        <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-pink-500/30 transition-all">
+          <div className="absolute top-0 right-0 p-3 opacity-5">
+            <PiggyBank className="w-12 h-12 text-pink-400" />
+          </div>
+          <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Lucro Mensal Estimado</span>
+          <div className="mt-2">
+            <h3 className="text-xl sm:text-2xl font-black text-pink-400 font-mono tracking-tight">{formatBRL(monthlyProfitEstimate)}</h3>
+            <p className="text-[9px] text-zinc-550 mt-1">Rendimento médio de juros (30 dias)</p>
+          </div>
         </div>
       </div>
 

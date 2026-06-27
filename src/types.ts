@@ -44,4 +44,6 @@ export interface FinancialStats {
   totalProfit: number; // Diferença entre o esperado a receber e o investido para os contratos ativos
   pastReceived: { [monthLabel: string]: number }; // Histórico de recebimentos por mês financeiro
   futureProjections: number; // Projeção futura de recebimentos com base nos contratos ativos (o que falta receber)
+  totalReceived: number; // Entradas totais de repasses já coletados
+  monthlyProfit: number; // Lucro mensal realizado (juros do ciclo atual)
 }
