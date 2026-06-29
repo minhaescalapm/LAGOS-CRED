@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ClientWithLoanDetails, FinancialStats, Loan, Payment } from "../types";
-import { getFinancialCycle, getTodayStr } from "../utils/dateUtils";
+import { getFinancialCycle, getTodayStr, addDays, formatFriendlyDate } from "../utils/dateUtils";
 import { 
   TrendingUp, 
   ArrowDownCircle, 
@@ -34,17 +34,49 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
   // Simulator configuration states
   const [simulationMoMGrace, setSimulationMoMGrace] = useState<number>(20); // 20% requested default
   const [customInterestRate, setCustomInterestRate] = useState<number>(42); // 42% standard interest rate defaulted
+  const [reportTab, setReportTab] = useState<"semanal" | "mensal" | "reinvestimentos">("semanal");
+  const [newAporteAmount, setNewAporteAmount] = useState<number>(1000);
+  const [newAporteRate, setNewAporteRate] = useState<number>(30);
 
   // 1. Calculate general financial aggregates from database
   const totalLent = allLoans.reduce((sum, l) => sum + l.amountInvested, 0);
   const totalReceived = allPayments.reduce((sum, p) => sum + p.amount, 0);
+
+  // Find payments received in the last 7 days (Weekly report)
+  const todayStr = getTodayStr();
+  const sevenDaysAgo = addDays(todayStr, -6);
+  const weeklyPayments = allPayments.filter(p => p.paymentDate >= sevenDaysAgo && p.paymentDate <= todayStr);
+  
+  // Find payments received in current month cycle (Monthly report)
+  const currentMonthCycleData = getFinancialCycle(todayStr);
+  const monthlyPayments = allPayments.filter(p => p.paymentDate >= currentMonthCycleData.start && p.paymentDate <= currentMonthCycleData.end);
+
+  // Helper to resolve client name from loanId
+  const getClientNameForPayment = (pay: Payment) => {
+    const loan = allLoans.find(l => l.id === pay.loanId);
+    if (!loan) return "Contrato Antigo";
+    const clientDetail = clientsWithLoans.find(c => c.client.id === loan.clientId);
+    return clientDetail ? clientDetail.client.name : "Cliente Desconhecido";
+  };
+
+  // Helper to calculate exact profit (juros) and principal (amortização) for a given payment
+  const getPaymentComponents = (pay: Payment) => {
+    const loan = allLoans.find(l => l.id === pay.loanId);
+    if (!loan || loan.amountInvested <= 0) return { profit: 0, principal: pay.amount };
+    const totalAmt = loan.totalAmount || (loan.dailyRate * loan.totalDays);
+    if (totalAmt <= 0) return { profit: 0, principal: pay.amount };
+    const profitRatio = (totalAmt - loan.amountInvested) / totalAmt;
+    const profit = pay.amount * profitRatio;
+    const principal = pay.amount - profit;
+    return { profit, principal };
+  };
   
   // Realized Profit = received payments minus the proportion of principal returned (or active interest rate return)
   // For simplicity and finance elegance, let's calculate Net Interest Profit Collected:
   // Since we know the average interest rate is ~30%, the principal component is ~77%, and interest is ~23%.
   // Or we can calculate it exactly: we can sum the profit portions of loans.
   // Let's compute exact cumulative profit under active terms:
-  const totalRevenueExpected = allLoans.reduce((sum, l) => sum + l.totalAmount, 0);
+  const totalRevenueExpected = allLoans.reduce((sum, l) => sum + (l.totalAmount || (l.dailyRate * l.totalDays)), 0);
   const projectedInterestProfit = totalRevenueExpected - totalLent;
   
   // Received profit can be estimated by: totalReceived - (principal portion of that received amount)
@@ -58,7 +90,9 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
     // Find corresponding loan
     const loan = allLoans.find(l => l.id === pay.loanId);
     if (!loan || loan.amountInvested === 0) return pSum;
-    const profitRatio = (loan.totalAmount - loan.amountInvested) / loan.totalAmount;
+    const totalAmt = loan.totalAmount || (loan.dailyRate * loan.totalDays);
+    if (totalAmt <= 0) return pSum;
+    const profitRatio = (totalAmt - loan.amountInvested) / totalAmt;
     return pSum + (pay.amount * profitRatio);
   }, 0);
 
@@ -69,7 +103,9 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
     .reduce((pSum, pay) => {
       const loan = allLoans.find(l => l.id === pay.loanId);
       if (!loan || loan.amountInvested === 0) return pSum;
-      const profitRatio = (loan.totalAmount - loan.amountInvested) / loan.totalAmount;
+      const totalAmt = loan.totalAmount || (loan.dailyRate * loan.totalDays);
+      if (totalAmt <= 0) return pSum;
+      const profitRatio = (totalAmt - loan.amountInvested) / totalAmt;
       return pSum + (pay.amount * profitRatio);
     }, 0);
 
@@ -253,6 +289,331 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
 
       </div>
 
+      {/* SECTION: DETALHAMENTO DE RELATÓRIOS E COMPOSIÇÃO DE JUROS COM ABAS */}
+      <div className="bg-zinc-950/40 border border-zinc-850 rounded-2xl p-5 space-y-5 select-none animate-fade-in">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-zinc-900">
+          <div className="flex items-center gap-2">
+            <Coins className="w-5 h-5 text-amber-400" />
+            <div>
+              <h4 className="font-extrabold text-sm uppercase tracking-wider text-zinc-100">Detalhamento Analítico de Caixa e Lucros</h4>
+              <p className="text-[10px] text-zinc-500 mt-0.5">Visão transparente de juros ganhos, amortizações e do fluxo de aportes continuados</p>
+            </div>
+          </div>
+          
+          {/* Sub-tabs selector with premium design matching layout guidelines */}
+          <div className="flex bg-zinc-900/80 p-1 rounded-xl border border-zinc-800 self-start md:self-auto gap-1">
+            <button
+              onClick={() => setReportTab("semanal")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                reportTab === "semanal"
+                  ? "bg-amber-400 text-zinc-950 shadow-md shadow-amber-400/10"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Lucros Semanais
+            </button>
+            <button
+              onClick={() => setReportTab("mensal")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                reportTab === "mensal"
+                  ? "bg-amber-400 text-zinc-950 shadow-md shadow-amber-400/10"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Lucros Mensais
+            </button>
+            <button
+              onClick={() => setReportTab("reinvestimentos")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                reportTab === "reinvestimentos"
+                  ? "bg-amber-400 text-zinc-950 shadow-md shadow-amber-400/10"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Aportes & Reinvestimento
+            </button>
+          </div>
+        </div>
+
+        {/* SUB-TAB: WEEKLY REPORT */}
+        {reportTab === "semanal" && (
+          <div className="space-y-4 animate-fade-in">
+            {/* Summary Metrics Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
+                <span className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider block">Entradas da Semana</span>
+                <span className="text-lg font-black text-white font-mono block mt-1">
+                  {formatBRL(weeklyPayments.reduce((sum, p) => sum + p.amount, 0))}
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Soma arrecadada nos últimos 7 dias</span>
+              </div>
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
+                <span className="text-[9px] text-emerald-400 uppercase font-bold tracking-wider block">Lucro Realizado (Juros)</span>
+                <span className="text-lg font-black text-emerald-400 font-mono block mt-1">
+                  {formatBRL(
+                    weeklyPayments.reduce((sum, p) => sum + getPaymentComponents(p).profit, 0)
+                  )}
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Fração líquida correspondente aos juros</span>
+              </div>
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
+                <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider block">Capital Amortizado</span>
+                <span className="text-lg font-black text-zinc-300 font-mono block mt-1">
+                  {formatBRL(
+                    weeklyPayments.reduce((sum, p) => sum + getPaymentComponents(p).principal, 0)
+                  )}
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Retorno do principal emprestado para reinvestimento</span>
+              </div>
+            </div>
+
+            {/* Payments Table */}
+            <div className="border border-zinc-900 rounded-xl overflow-hidden bg-zinc-950/20">
+              <div className="p-3 bg-zinc-900/40 border-b border-zinc-900 flex justify-between items-center">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-mono">
+                  Lançamentos Semanais (Últimos 7 dias)
+                </span>
+                <span className="text-[10px] text-zinc-500 font-mono font-bold">
+                  {weeklyPayments.length} depósitos registrados
+                </span>
+              </div>
+              
+              {weeklyPayments.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500 text-xs">
+                  Nenhum repasse coletado nesta semana.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-zinc-900/20 text-zinc-550 border-b border-zinc-900 text-[10px] font-bold uppercase tracking-wider">
+                        <th className="py-2 px-4">Data</th>
+                        <th className="py-2 px-4">Cliente</th>
+                        <th className="py-2 px-4 text-right">Repasse Total</th>
+                        <th className="py-2 px-4 text-right text-emerald-400/90">Lucro de Juros</th>
+                        <th className="py-2 px-4 text-right text-zinc-400">Amortização</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900/60">
+                      {weeklyPayments.map(p => {
+                        const comp = getPaymentComponents(p);
+                        return (
+                          <tr key={p.id} className="hover:bg-zinc-900/20 font-mono">
+                            <td className="py-2.5 px-4 text-zinc-400">{formatFriendlyDate(p.paymentDate)}</td>
+                            <td className="py-2.5 px-4 font-sans font-bold text-zinc-200">{getClientNameForPayment(p)}</td>
+                            <td className="py-2.5 px-4 text-right font-bold text-zinc-100">{formatBRL(p.amount)}</td>
+                            <td className="py-2.5 px-4 text-right text-emerald-400 font-bold">{formatBRL(comp.profit)}</td>
+                            <td className="py-2.5 px-4 text-right text-zinc-400">{formatBRL(comp.principal)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SUB-TAB: MONTHLY REPORT */}
+        {reportTab === "mensal" && (
+          <div className="space-y-4 animate-fade-in">
+            {/* Cycle info bar */}
+            <div className="p-3 bg-gradient-to-r from-amber-950/10 to-zinc-900/40 border border-amber-500/10 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="text-[11px] text-zinc-300">
+                📅 <strong>Ciclo Financeiro Corrente:</strong> Do dia <span className="text-amber-400 font-bold">02 do mês atual</span> até o dia <span className="text-amber-400 font-bold">01 do mês subsequente</span>.
+              </div>
+              <span className="text-[10px] bg-amber-400/10 text-amber-400 font-black px-2 py-0.5 rounded-md font-mono uppercase tracking-wider">
+                Rollover Dia 02
+              </span>
+            </div>
+
+            {/* Summary Metrics Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
+                <span className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider block">Entradas do Ciclo</span>
+                <span className="text-lg font-black text-white font-mono block mt-1">
+                  {formatBRL(monthlyPayments.reduce((sum, p) => sum + p.amount, 0))}
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Arrecadação acumulada no período</span>
+              </div>
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
+                <span className="text-[9px] text-violet-400 uppercase font-bold tracking-wider block">Lucro Realizado (Juros)</span>
+                <span className="text-lg font-black text-violet-400 font-mono block mt-1">
+                  {formatBRL(
+                    monthlyPayments.reduce((sum, p) => sum + getPaymentComponents(p).profit, 0)
+                  )}
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Juros reais coletados no ciclo corrente</span>
+              </div>
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
+                <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider block">Capital Amortizado</span>
+                <span className="text-lg font-black text-zinc-300 font-mono block mt-1">
+                  {formatBRL(
+                    monthlyPayments.reduce((sum, p) => sum + getPaymentComponents(p).principal, 0)
+                  )}
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Capital que voltou ao caixa pronto para novos aportes</span>
+              </div>
+            </div>
+
+            {/* Payments Table */}
+            <div className="border border-zinc-900 rounded-xl overflow-hidden bg-zinc-950/20">
+              <div className="p-3 bg-zinc-900/40 border-b border-zinc-900 flex justify-between items-center">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-mono">
+                  Lançamentos Mensais ({currentMonthCycleData.label})
+                </span>
+                <span className="text-[10px] text-zinc-500 font-mono font-bold">
+                  {monthlyPayments.length} depósitos registrados
+                </span>
+              </div>
+              
+              {monthlyPayments.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500 text-xs">
+                  Nenhum repasse coletado neste ciclo mensal ainda.
+                </div>
+              ) : (
+                <div className="overflow-y-auto max-h-[300px] scrollbar-thin">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-zinc-900/20 text-zinc-550 border-b border-zinc-900 text-[10px] font-bold uppercase tracking-wider sticky top-0">
+                        <th className="py-2 px-4 bg-zinc-950">Data</th>
+                        <th className="py-2 px-4 bg-zinc-950">Cliente</th>
+                        <th className="py-2 px-4 text-right bg-zinc-950">Repasse Total</th>
+                        <th className="py-2 px-4 text-right text-violet-400 bg-zinc-950">Lucro de Juros</th>
+                        <th className="py-2 px-4 text-right text-zinc-400 bg-zinc-950">Amortização</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900/60">
+                      {monthlyPayments.map(p => {
+                        const comp = getPaymentComponents(p);
+                        return (
+                          <tr key={p.id} className="hover:bg-zinc-900/20 font-mono">
+                            <td className="py-2 px-4 text-zinc-400">{formatFriendlyDate(p.paymentDate)}</td>
+                            <td className="py-2 px-4 font-sans font-bold text-zinc-200">{getClientNameForPayment(p)}</td>
+                            <td className="py-2 px-4 text-right font-bold text-zinc-100">{formatBRL(p.amount)}</td>
+                            <td className="py-2 px-4 text-right text-violet-400 font-bold">{formatBRL(comp.profit)}</td>
+                            <td className="py-2 px-4 text-right text-zinc-400">{formatBRL(comp.principal)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Historical monthly cycles from stats */}
+            {stats.pastReceived && Object.keys(stats.pastReceived).length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest font-mono block">
+                  Histórico de Fechamento por Ciclo Financeiro (Virando Todo Dia 02)
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {Object.entries(stats.pastReceived).map(([label, amount]) => (
+                    <div key={label} className="bg-zinc-900/20 p-3 rounded-xl border border-zinc-900">
+                      <span className="text-[9px] text-zinc-500 font-bold block">{label}</span>
+                      <strong className="text-xs font-mono text-zinc-300 block mt-1">{formatBRL(amount as number)}</strong>
+                      <span className="text-[8px] text-zinc-600 block mt-0.5">Total coletado</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SUB-TAB: REINVESTMENTS & APORTES */}
+        {reportTab === "reinvestimentos" && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-fade-in">
+            {/* Left explanation text: 5 cols */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="bg-gradient-to-b from-zinc-900 to-zinc-950 p-4 border border-zinc-850 rounded-2xl space-y-3">
+                <h5 className="font-extrabold text-xs text-amber-400 uppercase tracking-wider font-mono">
+                  🔄 Estratégia de Aportes Contínuos
+                </h5>
+                <p className="text-xs text-zinc-400 leading-relaxed text-justify">
+                  Sempre que um cliente realiza os pagamentos das parcelas diárias, você recebe de volta duas coisas: o <strong>lucro de juros</strong> e o <strong>capital amortizado</strong> (investimento inicial).
+                </p>
+                <p className="text-xs text-zinc-400 leading-relaxed text-justify">
+                  Para que o seu capital renda de forma exponencial e a engrenagem nunca pare, o modelo ideal é <strong>sacar apenas o lucro de juros e manter o investimento inicial trabalhando</strong> ("nunca para de investir"). 
+                </p>
+                <div className="p-3.5 bg-yellow-500/5 border border-yellow-500/25 rounded-xl text-[10px] text-amber-400 leading-normal font-mono">
+                  ✨ <strong>Cálculo de Aporte Ativo:</strong> Ao renovar ou fazer novos aportes, o capital principal é reaplicado instantaneamente na rua, perpetuando o rendimento diário de microcrédito sem queimar caixa pessoal.
+                </div>
+              </div>
+            </div>
+
+            {/* Right compounding simulator: 7 cols */}
+            <div className="lg:col-span-7 bg-zinc-900/30 border border-zinc-850 rounded-2xl p-4 space-y-4">
+              <h5 className="font-extrabold text-xs uppercase tracking-wider text-zinc-300">
+                🧮 Simulador Dinâmico de Reinvestimento Compilado
+              </h5>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[9px] text-zinc-500 uppercase font-black block">Valor do Novo Aporte (Capital)</label>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="range"
+                      min="500"
+                      max="20000"
+                      step="500"
+                      value={newAporteAmount}
+                      onChange={e => setNewAporteAmount(Number(e.target.value))}
+                      className="flex-1 accent-amber-400 h-1"
+                    />
+                    <span className="text-xs font-bold text-amber-400 font-mono w-16 text-right">{formatBRL(newAporteAmount)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[9px] text-zinc-500 uppercase font-black block">Taxa de Juros do Contrato (%)</label>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="range"
+                      min="10"
+                      max="50"
+                      value={newAporteRate}
+                      onChange={e => setNewAporteRate(Number(e.target.value))}
+                      className="flex-1 accent-amber-400 h-1"
+                    />
+                    <span className="text-xs font-bold text-amber-400 font-mono w-10 text-right">{newAporteRate}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Simulation outputs */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-900">
+                  <span className="text-[8px] text-zinc-550 uppercase font-bold block">Retorno Bruto</span>
+                  <span className="text-xs font-bold font-mono text-zinc-200 block mt-1">
+                    {formatBRL(newAporteAmount * (1 + newAporteRate/100))}
+                  </span>
+                </div>
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-900">
+                  <span className="text-[8px] text-zinc-550 uppercase font-bold block">Lucro de Juros</span>
+                  <span className="text-xs font-bold font-mono text-emerald-400 block mt-1">
+                    {formatBRL(newAporteAmount * (newAporteRate/100))}
+                  </span>
+                </div>
+                <div className="bg-zinc-950 p-2.5 rounded-xl border border-zinc-900 col-span-2">
+                  <span className="text-[8px] text-zinc-550 uppercase font-bold block">Reinvestimento de 1 Ano (Compounding)</span>
+                  <span className="text-xs font-bold font-mono text-yellow-500 block mt-1">
+                    {/* Compound calculation over 12 cycles assuming 1 cycle per month */}
+                    {formatBRL(newAporteAmount * Math.pow(1 + newAporteRate/100, 12))}
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-[10px] text-zinc-500 leading-normal font-mono bg-zinc-950/40 p-3 rounded-xl border border-zinc-900/50">
+                💡 Ao manter o investimento de <strong>{formatBRL(newAporteAmount)}</strong> sempre girando na carteira, no final de 12 ciclos reinvestindo os juros gerados, o seu montante crescerá exponencialmente para impressionantes <strong>{formatBRL(newAporteAmount * Math.pow(1 + newAporteRate/100, 12))}</strong>!
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* SECTION 2: ADIMPLÊNCIA / INADIMPLÊNCIA METRICS SEGMENT (Pagantes vs Inadimplentes) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         
@@ -289,6 +650,44 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
               </div>
               <span className="text-sm font-black font-mono text-amber-400">{delinquentCount} <span className="text-[10px] text-zinc-500 font-normal">cli.</span></span>
             </div>
+
+            {/* Delinquent clients list under the card */}
+            {delinquentCount > 0 && (
+              <div className="bg-zinc-950/40 border border-amber-500/10 rounded-xl p-3 space-y-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
+                <span className="text-[9px] font-bold text-amber-400 uppercase tracking-widest font-mono block">
+                  ⚠️ Clientes em Atraso para Cobrar:
+                </span>
+                <div className="divide-y divide-zinc-900/50 space-y-2">
+                  {delinquentClients.map(client => {
+                    const overdueValue = client.daysBehind * (client.activeLoan?.dailyRate || 0);
+                    return (
+                      <div key={client.client.id} className="pt-2 flex items-center justify-between gap-2 text-xs">
+                        <div className="min-w-0 flex-1">
+                          <span className="font-bold text-zinc-200 block truncate">{client.client.name}</span>
+                          <span className="text-[9px] text-zinc-500 font-mono block">
+                            {client.daysBehind}x em atraso • Total: <strong className="text-red-400">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(overdueValue)}</strong>
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (!client.activeLoan) return;
+                            const formattedPhone = `55${client.client.phone.replace(/\D/g, "")}`;
+                            const dateFormatted = client.referenceDate 
+                              ? client.referenceDate.split("-").reverse().join("/") 
+                              : client.activeLoan.startDate.split("-").reverse().join("/");
+                            const message = `Olá *${client.client.name}*, tudo bem? Passando para lembrar da sua parcela diária de *R$ ${client.activeLoan.dailyRate.toFixed(2)}*. Progresso: *${client.paidCount} de ${client.totalDays} pagas*. Última atualização: *${dateFormatted}*. Você possui *${client.daysBehind} parcelas em atraso*. Chave Pix (E-mail): lagoscelular5@gmail.com`;
+                            window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`, "_blank");
+                          }}
+                          className="px-2 py-1 bg-amber-500/10 hover:bg-amber-400 text-amber-400 hover:text-zinc-950 font-black text-[10px] rounded-lg border border-amber-500/20 transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+                        >
+                          Cobrar
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Overdue capital metrics group */}
             <div className="bg-zinc-900/30 border border-zinc-850 p-3 rounded-xl flex items-center justify-between gap-3">

@@ -1024,7 +1024,10 @@ export const dbService = {
     const moneyInvested = activeLoans.reduce((sum, l) => sum + l.amountInvested, 0);
 
     // 2. Lucro: Diferença entre o total a receber (com juros) e o investido nos contratos ativos
-    const totalProfit = activeLoans.reduce((sum, l) => sum + (l.totalAmount - l.amountInvested), 0);
+    const totalProfit = activeLoans.reduce((sum, l) => {
+      const totalAmt = l.totalAmount || (l.dailyRate * l.totalDays);
+      return sum + (totalAmt - l.amountInvested);
+    }, 0);
 
     // 3. Recebidos no Mês (com base no ciclo crítico: do dia 02 do mês atual até o dia 01 do mês seguinte)
     const currentMonthCycle = getFinancialCycle(simulationDate);
@@ -1057,13 +1060,30 @@ export const dbService = {
       return sum + (remainingPayments * loan.dailyRate);
     }, 0);
 
+    // 7. Total de Entradas (Repasses Coletados)
+    const totalReceived = payments.reduce((sum, p) => sum + p.amount, 0);
+
+    // 8. Lucro Mensal Realizado (com base no ciclo do dia 02 até dia 01)
+    const monthlyProfit = payments
+      .filter(p => p.paymentDate >= currentMonthCycle.start && p.paymentDate <= currentMonthCycle.end)
+      .reduce((pSum, pay) => {
+        const loan = loans.find(l => l.id === pay.loanId);
+        if (!loan || loan.amountInvested === 0) return pSum;
+        const totalAmt = loan.totalAmount || (loan.dailyRate * loan.totalDays);
+        if (totalAmt <= 0) return pSum;
+        const profitRatio = (totalAmt - loan.amountInvested) / totalAmt;
+        return pSum + (pay.amount * profitRatio);
+      }, 0);
+
     return {
       moneyInvested,
       receivedThisMonth,
       receivedThisWeek,
       totalProfit,
       pastReceived,
-      futureProjections
+      futureProjections,
+      totalReceived,
+      monthlyProfit
     };
   }
 };

@@ -790,6 +790,17 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {/* PAINEL DE COBRANÇA DE ATRASOS (ALERTA DE INADIMPLÊNCIA CRÍTICA) */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-450 block">Lista de Cobrança: Clientes com Diárias em Atraso</h3>
+              <AlertsSection 
+                clientsWithLoans={clientsWithLoans}
+                onOpenPixModal={(clName) => setPixModal({ isOpen: true, clientName: clName })}
+                onEditClient={(clientDetail) => setEditingClient(clientDetail)}
+                onDeleteClient={handleDeleteClient}
+              />
+            </div>
           </div>
         )}
 
