@@ -985,11 +985,15 @@ export const dbService = {
         }
 
         // Calculate atrasos (Delay) - Sundays are skipped if excludeSundays is true
+        // REGRA DE OURO: O pagamento de hoje está no prazo até a meia-noite (fim do dia).
+        // Portanto, para fins de atraso (daysBehind), calculamos os dias decorridos esperados até ONTEM.
+        // Se o cliente pagou tudo até ontem, ele está EM DIA.
         const isExcluding = loan.excludeSundays !== false;
-        const elapsedDays = getElapsedDaysExcludingSundays(addDays(loan.startDate, 1), simulationDate, isExcluding); 
-        const expectedDaysToPay = Math.max(0, Math.min(elapsedDays, totalDays));
-        const daysBehind = Math.max(0, expectedDaysToPay - paidCount);
-        const isDelayed = daysBehind >= 2;
+        const yesterdayDate = addDays(simulationDate, -1);
+        const elapsedDaysUpToYesterday = getElapsedDaysExcludingSundays(addDays(loan.startDate, 1), yesterdayDate, isExcluding); 
+        const expectedDaysToPayUpToYesterday = Math.max(0, Math.min(elapsedDaysUpToYesterday, totalDays));
+        const daysBehind = Math.max(0, expectedDaysToPayUpToYesterday - paidCount);
+        const isDelayed = daysBehind >= 1; // Se ele deve pelo menos 1 dia até ontem, ele está atrasado
 
         return {
           client,
