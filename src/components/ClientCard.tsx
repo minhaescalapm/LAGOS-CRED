@@ -144,7 +144,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     if (!activeLoan) return;
     const remainingDebt = Math.max(0, activeLoan.totalAmount - (paidCount * activeLoan.dailyRate));
     setRenewDebt(remainingDebt);
-    setRenewCapital(1000.0);
+    setRenewCapital(800.0);
     setRenewTerm(26);
     setRenewBaseTerm(26);
     setRenewBaseRate(42.0);
@@ -305,7 +305,7 @@ Passando para lembrar das parcelas diárias pendentes do seu contrato no valor i
 - Progresso do Contrato: *${paidCount} de ${totalDays} pagas*
 - Sua última diária paga foi em: *${dateFormatted}*
 
-🗓️ *Última atualização dia ${lastUpdateFormatted}, e faltam ${daysBehind} para ficar em dia.*
+🗓️ *Última atualização dia ${lastUpdateFormatted}, e faltam ${daysBehind + (isTodayPending ? 1 : 0)} para ficar em dia.*
 _(Cálculo desde a última atualização ${lastUpdateFormatted} até hoje ${todayFormatted})_
 
 🔑 *Nossa Chave Pix (E-mail):*
@@ -1054,28 +1054,30 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
             e.preventDefault();
             if (!onRenewLoan) return;
             try {
-              const capital = parseFloat(renewCapital.toString());
+              const debt = parseFloat(renewDebt.toString());
+              const additionalCapital = parseFloat(renewCapital.toString());
+              const totalCapital = debt + additionalCapital; // Juntar dívida atual com novo capital
               const prazo = parseInt(renewTerm.toString());
               const prazoBase = parseInt(renewBaseTerm.toString());
               let lucroEmReais = 0;
 
               if (prazo <= prazoBase) {
                 // Regra Padrão (Ex: até 26 dias cobra os 42% fixos)
-                lucroEmReais = capital * (renewBaseRate / 100);
+                lucroEmReais = totalCapital * (renewBaseRate / 100);
               } else {
                 // Regra de Prazo Estendido (Ex: 60, 100 dias)
-                const lucroBase = capital * (renewBaseRate / 100); // Lucro dos primeiros 26 dias
+                const lucroBase = totalCapital * (renewBaseRate / 100); // Lucro dos primeiros 26 dias
                 const diasExtras = prazo - prazoBase;
-                const lucroDiasExtras = capital * (renewExtraRate / 100) * diasExtras; // 1.5% ao dia extra
+                const lucroDiasExtras = totalCapital * (renewExtraRate / 100) * diasExtras; // 1.5% ao dia extra
                 lucroEmReais = lucroBase + lucroDiasExtras;
               }
 
-              const totalNovoContrato = capital + lucroEmReais;
+              const totalNovoContrato = totalCapital + lucroEmReais;
               const novaParcelaDiaria = prazo > 0 ? totalNovoContrato / prazo : 0;
 
               await onRenewLoan(
                 activeLoan.id,
-                capital,
+                totalCapital,
                 prazo,
                 Number(novaParcelaDiaria.toFixed(2)),
                 renewStartDate,
@@ -1202,24 +1204,26 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
 
           {/* Real-time Math Logic and Output Cards */}
           {(() => {
-            const capital = parseFloat(renewCapital.toString());
+            const debt = parseFloat(renewDebt.toString());
+            const additionalCapital = parseFloat(renewCapital.toString());
+            const totalCapital = debt + additionalCapital; // Juntar dívida com novo capital
             const prazo = parseInt(renewTerm.toString());
             const prazoBase = parseInt(renewBaseTerm.toString());
             let lucroEmReais = 0;
 
             if (prazo <= prazoBase) {
               // Regra Padrão
-              lucroEmReais = capital * (renewBaseRate / 100);
+              lucroEmReais = totalCapital * (renewBaseRate / 100);
             } else {
               // Regra de Prazo Estendido
-              const lucroBase = capital * (renewBaseRate / 100);
+              const lucroBase = totalCapital * (renewBaseRate / 100);
               const diasExtras = prazo - prazoBase;
-              const lucroDiasExtras = capital * (renewExtraRate / 100) * diasExtras;
+              const lucroDiasExtras = totalCapital * (renewExtraRate / 100) * diasExtras;
               lucroEmReais = lucroBase + lucroDiasExtras;
             }
 
-            const trocoCliente = capital - parseFloat(renewDebt.toString());
-            const totalNovoContrato = capital + lucroEmReais;
+            const trocoCliente = additionalCapital; // Troco é o novo capital solicitado
+            const totalNovoContrato = totalCapital + lucroEmReais;
             const novaParcelaDiaria = prazo > 0 ? totalNovoContrato / prazo : 0;
 
             const formatCurrency = (val: number) => {
@@ -1235,7 +1239,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                       ? "bg-emerald-500/10 border-emerald-500/25" 
                       : "bg-red-500/10 border-red-500/25"
                   }`}>
-                    <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider mb-0.5">💰 TROCO NO PIX</span>
+                    <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider mb-0.5">💰 TROCO NO PIX (NOVO CAPITAL)</span>
                     <span className={`text-base font-black font-mono ${trocoCliente >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                       {formatCurrency(trocoCliente)}
                     </span>
@@ -1254,7 +1258,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                         {formatCurrency(totalNovoContrato)}
                       </span>
                       <span className="text-[8px] text-zinc-500 mt-0.5">
-                        Lucro Projetado: {formatCurrency(lucroEmReais)}
+                        Base: {formatCurrency(totalCapital)} (Lucro: {formatCurrency(lucroEmReais)})
                       </span>
                     </div>
 

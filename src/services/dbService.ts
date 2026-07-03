@@ -541,7 +541,7 @@ export const dbService = {
 
         if (insertError) {
           console.warn("Could not insert new loan with status field, retrying without status column...", insertError);
-          const { error: retryError } = await supabase
+          const { error: retryError1 } = await supabase
             .from("loans")
             .insert({
               id: newLoan.id,
@@ -553,7 +553,22 @@ export const dbService = {
               start_date: startDate,
               exclude_sundays: newLoan.excludeSundays
             });
-          if (retryError) throw retryError;
+          
+          if (retryError1) {
+            console.warn("Could not insert with exclude_sundays either, trying basic fields only (same as addLoan)...", retryError1);
+            const { error: retryError2 } = await supabase
+              .from("loans")
+              .insert({
+                id: newLoan.id,
+                client_id: clientId,
+                amount_invested: amountInvested,
+                total_amount: newLoan.totalAmount,
+                daily_rate: dailyRate,
+                total_days: totalDays,
+                start_date: startDate
+              });
+            if (retryError2) throw retryError2;
+          }
         }
       } catch (err: any) {
         console.error("Supabase renewLoan error:", err);
