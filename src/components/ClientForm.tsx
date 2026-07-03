@@ -145,7 +145,13 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
       const filtered = existingClients.filter(c => 
         c.name.toLowerCase().includes(val.toLowerCase())
       );
-      setFilteredSuggestions(filtered);
+      const seenIds = new Set<string>();
+      const uniqueFiltered = filtered.filter(c => {
+        if (seenIds.has(c.id)) return false;
+        seenIds.add(c.id);
+        return true;
+      });
+      setFilteredSuggestions(uniqueFiltered);
       setShowSuggestions(true);
     } else {
       setFilteredSuggestions([]);

@@ -35,14 +35,19 @@ export function InvestmentsDetails({ clientsWithLoans, allLoans, onDeleteLoan, o
   };
 
   // Group active/all loans by client
-  const clientInvestments = clientsWithLoans.map(c => {
-    const clientLoans = allLoans.filter(l => l.clientId === c.client.id);
+  const uniqueClientsMap = new Map<string, typeof clientsWithLoans[0]["client"]>();
+  clientsWithLoans.forEach(c => {
+    uniqueClientsMap.set(c.client.id, c.client);
+  });
+
+  const clientInvestments = Array.from(uniqueClientsMap.values()).map(client => {
+    const clientLoans = allLoans.filter(l => l.clientId === client.id);
     const totalInvested = clientLoans
       .filter(l => l.status !== "completed")
       .reduce((sum, l) => sum + l.amountInvested, 0);
 
     return {
-      client: c.client,
+      client,
       loans: clientLoans,
       totalActiveInvested: totalInvested
     };

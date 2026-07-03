@@ -661,7 +661,7 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
                   {delinquentClients.map(client => {
                     const overdueValue = client.daysBehind * (client.activeLoan?.dailyRate || 0);
                     return (
-                      <div key={client.client.id} className="pt-2 flex items-center justify-between gap-2 text-xs">
+                      <div key={client.activeLoan ? `delinquent-loan-${client.activeLoan.id}` : `delinquent-client-${client.client.id}`} className="pt-2 flex items-center justify-between gap-2 text-xs">
                         <div className="min-w-0 flex-1">
                           <span className="font-bold text-zinc-200 block truncate">{client.client.name}</span>
                           <span className="text-[9px] text-zinc-500 font-mono block">
