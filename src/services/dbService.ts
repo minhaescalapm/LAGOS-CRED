@@ -963,7 +963,8 @@ export const dbService = {
           totalDays: 0,
           referenceDate: "",
           isDelayed: false,
-          daysBehind: 0
+          daysBehind: 0,
+          chargeCountToday: this.getChargeCount(client.id, simulationDate)
         }];
       }
 
@@ -1027,7 +1028,8 @@ export const dbService = {
           totalDays,
           referenceDate,
           isDelayed,
-          daysBehind: paidCount >= totalDays ? 0 : daysBehind
+          daysBehind: paidCount >= totalDays ? 0 : daysBehind,
+          chargeCountToday: this.getChargeCount(client.id, simulationDate)
         };
       });
     });
@@ -1113,5 +1115,20 @@ export const dbService = {
       totalReceived,
       monthlyProfit
     };
+  },
+
+  // Charges tracking helpers
+  getChargeCount(clientId: string, dateStr: string): number {
+    const key = `gestao_emprestimos_charges_${clientId}_${dateStr}`;
+    const stored = localStorage.getItem(key);
+    return stored ? Number(stored) : 0;
+  },
+
+  async incrementChargeCount(clientId: string, dateStr: string): Promise<number> {
+    const key = `gestao_emprestimos_charges_${clientId}_${dateStr}`;
+    const current = this.getChargeCount(clientId, dateStr);
+    const newVal = current + 1;
+    localStorage.setItem(key, String(newVal));
+    return newVal;
   }
 };

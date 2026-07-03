@@ -290,6 +290,17 @@ export default function App() {
     }
   };
 
+  // Handle Increment Charge Count (to track how many times a client was charged on a given day)
+  const handleIncrementCharge = async (clientId: string) => {
+    try {
+      const activeDate = simulationDate || getTodayStr();
+      await dbService.incrementChargeCount(clientId, activeDate);
+      await refreshData();
+    } catch (err: any) {
+      console.error("Erro ao registrar cobrança:", err);
+    }
+  };
+
   // Handle Adjusting Loan start date and paid count directly
   const handleAdjustLoan = async (loanId: string, targetPaidCount: number, targetStartDate: string) => {
     setIsLoading(true);
@@ -799,6 +810,7 @@ export default function App() {
                 onOpenPixModal={(clName) => setPixModal({ isOpen: true, clientName: clName })}
                 onEditClient={(clientDetail) => setEditingClient(clientDetail)}
                 onDeleteClient={handleDeleteClient}
+                onIncrementCharge={handleIncrementCharge}
               />
             </div>
           </div>
@@ -910,6 +922,7 @@ export default function App() {
                     onCopyContract={(clientDetail) => setCopyingClient(clientDetail)}
                     onRenewLoan={handleRenewLoan}
                     simulationDate={simulationDate}
+                    onIncrementCharge={handleIncrementCharge}
                   />
                 ))}
               </div>
@@ -966,6 +979,7 @@ export default function App() {
                 setAgendaPreSelectedDate(dateStr);
                 setShowAddModal(true);
               }}
+              onIncrementCharge={handleIncrementCharge}
             />
           </div>
         )}

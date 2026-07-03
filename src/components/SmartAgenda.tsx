@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { ClientWithLoanDetails, Loan, Payment } from "../types";
+import { dbService } from "../services/dbService";
 import { 
   parseLocalDate, 
   formatLocalDate, 
@@ -31,6 +32,7 @@ interface SmartAgendaProps {
   allPayments: Payment[];
   simulationDate: string;
   onAddNewContractForDate: (date: string) => void;
+  onIncrementCharge?: (clientId: string) => void;
 }
 
 export const SmartAgenda: React.FC<SmartAgendaProps> = ({
@@ -38,7 +40,8 @@ export const SmartAgenda: React.FC<SmartAgendaProps> = ({
   allLoans,
   allPayments,
   simulationDate,
-  onAddNewContractForDate
+  onAddNewContractForDate,
+  onIncrementCharge
 }) => {
   // 1. Month Navigation State
   const currentDate = parseLocalDate(simulationDate);
@@ -302,7 +305,10 @@ export const SmartAgenda: React.FC<SmartAgendaProps> = ({
     };
   }, [dayStatsMap, viewYear, viewMonth]);
 
-  const sendWhatsAppDirectCharge = (clientName: string, phone: string, amount: number, dateStr: string) => {
+  const sendWhatsAppDirectCharge = (clientId: string, clientName: string, phone: string, amount: number, dateStr: string) => {
+    dbService.incrementChargeCount(clientId, dateStr);
+    onIncrementCharge?.(clientId);
+
     const formattedPhone = `55${phone.replace(/\D/g, "")}`;
     const dateFormatted = formatFriendlyDate(dateStr);
     const message = `Olá *${clientName}*, hoje (${dateFormatted}) temos o repasse agendado no valor de *R$ ${amount.toFixed(2)}*. 
@@ -600,9 +606,20 @@ Por gentileza, realize o envio no PIX lagoscelular5@gmail.com e nos envie o comp
                               </span>
                             ) : (
                               <>
+                                {(() => {
+                                  const chargeCount = dbService.getChargeCount(col.client.id, selectedDayStr);
+                                  if (chargeCount > 0) {
+                                    return (
+                                      <span className="p-1 px-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 rounded-lg text-[9px] font-bold font-mono">
+                                        Cobrado {chargeCount}x
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                                 <button
                                   type="button"
-                                  onClick={() => sendWhatsAppDirectCharge(col.client.name, col.client.phone, col.loan.dailyRate, selectedDayStr)}
+                                  onClick={() => sendWhatsAppDirectCharge(col.client.id, col.client.name, col.client.phone, col.loan.dailyRate, selectedDayStr)}
                                   className="p-1.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 rounded-lg transition-transform cursor-pointer"
                                   title="Enviar Lembrete WhatsApp"
                                 >

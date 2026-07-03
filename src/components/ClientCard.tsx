@@ -29,6 +29,7 @@ interface ClientCardProps {
   onCopyContract?: (clientDetail: ClientWithLoanDetails) => void;
   onRenewLoan?: (oldLoanId: string, amountInvested: number, totalDays: number, dailyRate: number, startDate: string, totalAmount?: number) => Promise<void>;
   simulationDate?: string;
+  onIncrementCharge?: (clientId: string) => void;
 }
 
 export const ClientCard: React.FC<ClientCardProps> = ({ 
@@ -41,9 +42,10 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   onToggleSunday,
   onCopyContract,
   onRenewLoan,
-  simulationDate
+  simulationDate,
+  onIncrementCharge
 }) => {
-  const { client, activeLoan, paidCount, totalDays, referenceDate } = clientDetail;
+  const { client, activeLoan, paidCount, totalDays, referenceDate, chargeCountToday } = clientDetail;
 
   const isExcludingSundays = activeLoan ? activeLoan.excludeSundays !== false : true;
   const baseToday = simulationDate || getTodayStr();
@@ -276,6 +278,10 @@ Estaremos a Disposição, não perca seu crédito.
   // Handler for sending exact WhatsApp billing message (Step 5 template)
   const handleWhatsAppCharge = () => {
     if (!activeLoan) return;
+
+    // Trigger charge count increment
+    onIncrementCharge?.(client.id);
+
     const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
     const dateFormatted = paidCount > 0 
       ? formatFriendlyDate(referenceDate) 
@@ -445,6 +451,13 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 EM DIA
               </span>
             )}
+
+            {chargeCountToday !== undefined && chargeCountToday > 0 ? (
+              <span className="p-1 px-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-[9px] font-extrabold font-mono flex items-center gap-1 animate-fade-in shrink-0">
+                <Send className="w-2.5 h-2.5 text-emerald-400" />
+                COBRADO {chargeCountToday}x HOJE
+              </span>
+            ) : null}
 
             {/* Quick edit & delete client */}
             {showDeleteConfirm ? (
@@ -633,7 +646,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                   className="mt-1 w-full py-1.5 bg-red-600 hover:bg-red-505 text-white font-extrabold text-[9px] rounded-lg flex items-center justify-center gap-1 uppercase tracking-wider transition-colors cursor-pointer border-none"
                 >
                   <Send className="w-3 h-3" />
-                  Cobrar agora (WhatsApp)
+                  {chargeCountToday && chargeCountToday > 0 ? `Cobrado ${chargeCountToday}x hoje (Enviar de novo)` : "Cobrar agora (WhatsApp)"}
                 </button>
               </div>
             ) : isTodayPending ? (
@@ -651,7 +664,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                     className="mt-1 w-full py-2 bg-emerald-600 hover:bg-emerald-505 text-white font-black text-[10px] rounded-lg flex items-center justify-center gap-1 uppercase tracking-wider shadow-md transition-all cursor-pointer border-none"
                   >
                     <Send className="w-3.5 h-3.5 text-white" />
-                    Mandar Cobrança com PIX
+                    {chargeCountToday && chargeCountToday > 0 ? `Cobrado ${chargeCountToday}x hoje (Enviar de novo)` : "Mandar Cobrança com PIX"}
                   </button>
                 </div>
               ) : (
@@ -668,7 +681,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                     className="mt-1 w-full py-1.5 bg-amber-500 hover:bg-amber-405 text-zinc-950 font-extrabold text-[9px] rounded-lg flex items-center justify-center gap-1 uppercase tracking-wider transition-colors cursor-pointer border-none"
                   >
                     <Send className="w-3 h-3 text-zinc-950" />
-                    Lembrete do Dia (WhatsApp)
+                    {chargeCountToday && chargeCountToday > 0 ? `Lembrete Enviado (${chargeCountToday}x) - Enviar de novo` : "Lembrete do Dia (WhatsApp)"}
                   </button>
                 </div>
               )
@@ -1279,7 +1292,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               title="Mandar mensagem de cobrança via WhatsApp"
             >
               <Send className="w-4 h-4 text-white shrink-0" />
-              <span>Cobrança</span>
+              <span>Cobrança{chargeCountToday && chargeCountToday > 0 ? ` (${chargeCountToday}x)` : ""}</span>
             </button>
 
             {/* BOTAO DE RECEBIMENTO (DAR BAIXA) */}

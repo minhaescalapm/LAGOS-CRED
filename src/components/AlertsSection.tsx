@@ -8,9 +8,10 @@ interface AlertsSectionProps {
   onOpenPixModal: (clientName: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
   onDeleteClient?: (clientId: string, loanId?: string) => void;
+  onIncrementCharge?: (clientId: string) => void;
 }
 
-export function AlertsSection({ clientsWithLoans, onOpenPixModal, onEditClient, onDeleteClient }: AlertsSectionProps) {
+export function AlertsSection({ clientsWithLoans, onOpenPixModal, onEditClient, onDeleteClient, onIncrementCharge }: AlertsSectionProps) {
   const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
   // Filter delayed clients (daysBehind > 0 or isDelayed)
   const delayedClients = clientsWithLoans.filter(c => c.isDelayed && c.activeLoan);
@@ -18,6 +19,9 @@ export function AlertsSection({ clientsWithLoans, onOpenPixModal, onEditClient, 
   // Exact step 5 template
   const handleChargeWhatsApp = (client: ClientWithLoanDetails) => {
     if (!client.activeLoan) return;
+
+    // Increment charge count
+    onIncrementCharge?.(client.client.id);
     
     const formattedPhone = `55${client.client.phone.replace(/\D/g, "")}`;
     const dateFormatted = client.referenceDate 
@@ -134,7 +138,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                     className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-zinc-850 hover:bg-zinc-800 text-zinc-300 rounded-lg text-xs font-bold border border-zinc-700/80 transition-all cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5 text-yellow-500" />
-                    Cobrar no WhatsApp
+                    {client.chargeCountToday && client.chargeCountToday > 0 ? `Cobrado (${client.chargeCountToday}x)` : "Cobrar no WhatsApp"}
                   </button>
 
                   {/* COPIAR PIX CHAVE */}

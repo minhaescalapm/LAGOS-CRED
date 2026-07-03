@@ -35,6 +35,7 @@ export interface ClientWithLoanDetails {
   referenceDate: string; // Data da última atualização / cobertura (YYYY-MM-DD)
   isDelayed: boolean; // Se o cliente está em atraso
   daysBehind: number; // Quantidade de diárias em atraso
+  chargeCountToday?: number; // Quantidade de vezes que o cliente foi cobrado hoje
 }
 
 export interface FinancialStats {
