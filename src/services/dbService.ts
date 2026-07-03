@@ -979,21 +979,45 @@ export const dbService = {
         // Find reference coverage date
         let referenceDate = "";
         if (paidCount > 0) {
-          referenceDate = loanPayments[paidCount - 1].referenceDate;
+          const lastPaidRef = loanPayments[paidCount - 1].referenceDate;
+          referenceDate = lastPaidRef;
+          
+          // Se domingos são isentos, e o dia seguinte à última diária paga é domingo,
+          // o cliente está coberto também no domingo!
+          if (loan.excludeSundays !== false) {
+            const nextDay = addDays(lastPaidRef, 1);
+            if (isSunday(nextDay)) {
+              referenceDate = nextDay;
+            }
+          }
         } else {
           referenceDate = loan.startDate;
         }
 
-        // Calculate atrasos (Delay) - Sundays are skipped if excludeSundays is true
-        // REGRA DE OURO: O pagamento de hoje está no prazo até a meia-noite (fim do dia).
-        // Portanto, para fins de atraso (daysBehind), calculamos os dias decorridos esperados até ONTEM.
-        // Se o cliente pagou tudo até ontem, ele está EM DIA.
+        // Generate all scheduled dates for the loan
+        const allScheduledDates: string[] = [];
+        let current = addDays(loan.startDate, 1);
         const isExcluding = loan.excludeSundays !== false;
-        const yesterdayDate = addDays(simulationDate, -1);
-        const elapsedDaysUpToYesterday = getElapsedDaysExcludingSundays(addDays(loan.startDate, 1), yesterdayDate, isExcluding); 
-        const expectedDaysToPayUpToYesterday = Math.max(0, Math.min(elapsedDaysUpToYesterday, totalDays));
-        const daysBehind = Math.max(0, expectedDaysToPayUpToYesterday - paidCount);
-        const isDelayed = daysBehind >= 1; // Se ele deve pelo menos 1 dia até ontem, ele está atrasado
+        let added = 0;
+        let iterations = 0;
+        while (added < totalDays && iterations < 1000) {
+          iterations++;
+          if (!isExcluding || !isSunday(current)) {
+            allScheduledDates.push(current);
+            added++;
+          }
+          current = addDays(current, 1);
+        }
+
+        const isToday = simulationDate === getTodayStr();
+        const currentHour = new Date().getHours();
+        // Se for hoje real de simulação e for antes das 19:00: o limite de cobrança é ontem.
+        // Se já passou das 19:00 de hoje ou for uma data simulada diferente, o limite de cobrança é hoje.
+        const limitDate = (isToday && currentHour < 19) ? addDays(simulationDate, -1) : simulationDate;
+
+        const expectedPayments = allScheduledDates.filter(d => d <= limitDate).length;
+        const daysBehind = Math.max(0, expectedPayments - paidCount);
+        const isDelayed = daysBehind >= 1 && (paidCount < totalDays);
 
         return {
           client,
@@ -1002,7 +1026,7 @@ export const dbService = {
           paidCount,
           totalDays,
           referenceDate,
-          isDelayed: isDelayed && (paidCount < totalDays),
+          isDelayed,
           daysBehind: paidCount >= totalDays ? 0 : daysBehind
         };
       });

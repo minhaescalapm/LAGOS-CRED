@@ -16,7 +16,7 @@ import {
   CalendarDays as CalendarDaysIcon,
   RefreshCw
 } from "lucide-react";
-import { formatFriendlyDate, addDays, getTodayStr, getRetroactiveStartDate, getElapsedDaysExcludingSundays, isSunday } from "../utils/dateUtils";
+import { formatFriendlyDate, formatDayMonthAbbr, addDays, getTodayStr, getRetroactiveStartDate, getElapsedDaysExcludingSundays, isSunday } from "../utils/dateUtils";
 
 interface ClientCardProps {
   clientDetail: ClientWithLoanDetails;
@@ -43,10 +43,40 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   onRenewLoan,
   simulationDate
 }) => {
-  const { client, activeLoan, paidCount, totalDays, referenceDate, isDelayed, daysBehind } = clientDetail;
+  const { client, activeLoan, paidCount, totalDays, referenceDate } = clientDetail;
 
   const isExcludingSundays = activeLoan ? activeLoan.excludeSundays !== false : true;
   const baseToday = simulationDate || getTodayStr();
+
+  const isToday = baseToday === getTodayStr();
+  const currentHour = new Date().getHours();
+  const isAfter7PM = currentHour >= 19;
+
+  // Generate all scheduled dates for the active loan
+  const allScheduledDates = React.useMemo(() => {
+    if (!activeLoan) return [];
+    const dates: string[] = [];
+    let current = addDays(activeLoan.startDate, 1);
+    const isExcluding = activeLoan.excludeSundays !== false;
+    let added = 0;
+    let iterations = 0;
+    while (added < activeLoan.totalDays && iterations < 1000) {
+      iterations++;
+      if (!isExcluding || !isSunday(current)) {
+        dates.push(current);
+        added++;
+      }
+      current = addDays(current, 1);
+    }
+    return dates;
+  }, [activeLoan]);
+
+  const limitDateForCutoff = (isToday && !isAfter7PM) ? addDays(baseToday, -1) : baseToday;
+  const expectedPayments = allScheduledDates.filter(d => d <= limitDateForCutoff).length;
+  const daysBehind = activeLoan ? Math.max(0, expectedPayments - paidCount) : 0;
+  const isDelayed = activeLoan ? (daysBehind >= 1 && paidCount < totalDays) : false;
+
+  const isTodayPending = activeLoan ? (paidCount < totalDays) && (referenceDate < baseToday) : false;
 
   // Predict new reference date if we added payDaysCount days
   const getPredictedRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
@@ -55,6 +85,13 @@ export const ClientCard: React.FC<ClientCardProps> = ({
       currentRef = addDays(currentRef, 1);
       if (excludeSundays && isSunday(currentRef)) {
         currentRef = addDays(currentRef, 1);
+      }
+    }
+    // Nova regra: se o dia seguinte ao último pago for domingo e domingos são isentos, então o cliente está coberto até domingo!
+    if (excludeSundays) {
+      const nextDay = addDays(currentRef, 1);
+      if (isSunday(nextDay)) {
+        currentRef = nextDay;
       }
     }
     return currentRef;
@@ -151,49 +188,10 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     : 0;
   const expectedPaidCount = activeLoan ? Math.max(0, Math.min(elapsedDaysBack, totalDays)) : 0;
 
-  // Generate all scheduled dates for the active loan
-  const allScheduledDates = React.useMemo(() => {
-    if (!activeLoan) return [];
-    const dates: string[] = [];
-    let current = addDays(activeLoan.startDate, 1);
-    const isExcluding = activeLoan.excludeSundays !== false;
-    let added = 0;
-    let iterations = 0;
-    while (added < activeLoan.totalDays && iterations < 1000) {
-      iterations++;
-      if (!isExcluding || !isSunday(current)) {
-        dates.push(current);
-        added++;
-      }
-      current = addDays(current, 1);
-    }
-    return dates;
-  }, [activeLoan]);
-
   // The first paidCount schedules are already paid. The rest are unpaid!
   const unpaidSchedules = React.useMemo(() => {
     return allScheduledDates.slice(paidCount);
   }, [allScheduledDates, paidCount]);
-
-  const [selectedUnpaidDates, setSelectedUnpaidDates] = React.useState<string[]>([]);
-
-  // Automatically pre-select only the single next unpaid date ("somente o do dia")
-  React.useEffect(() => {
-    if (activeLoan && unpaidSchedules.length > 0) {
-      setSelectedUnpaidDates([unpaidSchedules[0]]);
-    } else {
-      setSelectedUnpaidDates([]);
-    }
-  }, [unpaidSchedules, activeLoan]);
-
-  // Sincronizar contador de parcelas com as datas marcadas interativamente
-  React.useEffect(() => {
-    if (selectedUnpaidDates.length > 0) {
-      setPayDaysCount(selectedUnpaidDates.length);
-    } else {
-      setPayDaysCount(1);
-    }
-  }, [selectedUnpaidDates]);
 
   // Show temporary Whatsapp Button for the most recent payload
   const [showWhatsappReceipt, setShowWhatsappReceipt] = useState(false);
@@ -289,30 +287,27 @@ Estaremos a Disposição, não perca seu crédito.
 
     const todayFormatted = formatFriendlyDate(baseToday);
 
-    const alertMessage = isDelayed
-      ? "⚠️ Você precisa acertar a parcela pendente para mantermos o seu cadastro atualizado."
-      : "🎉 PARABENS, VOCE ESTA EM DIA ACERTE A DE HOJE E MANTENHA SEU SCORE ALTO.";
+    const valorCobrar = activeLoan.dailyRate;
+    const chavePix = "lagoscelular5@gmail.com";
 
     const messageTemplate = `Olá *${client.name}*, tudo bem?
-Passando para lembrar das parcelas diárias pendentes do seu contrato no valor individual de *R$ ${activeLoan.dailyRate.toFixed(2)}*.
+Passando para lembrar das parcelas diárias pendentes do seu contrato no valor individual de *R$ ${valorCobrar.toFixed(2)}*.
+
+⚠️ *FAÇA SEU PAGAMENTO AGORA E EVITE JUROS.*
 
 📊 *Seu Resumo Geral:*
-Progresso do Contrato: *${paidCount} de ${totalDays} pagas*
-Sua última diária paga foi em: *${dateFormatted}*
+- Progresso do Contrato: *${paidCount} de ${totalDays} pagas*
+- Sua última diária paga foi em: *${dateFormatted}*
 
 🗓️ *Última atualização dia ${lastUpdateFormatted}, e faltam ${daysBehind} para ficar em dia.*
 _(Cálculo desde a última atualização ${lastUpdateFormatted} até hoje ${todayFormatted})_
 
-${alertMessage}
-
 🔑 *Nossa Chave Pix (E-mail):*
-lagoscelular5@gmail.com
+*${chavePix}*
 
 ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao simular um novo valor. Obrigado!
 
 🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
-
-
 `;
 
     const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(messageTemplate)}`;
@@ -621,91 +616,63 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
           </div>
         </div>
 
-        {/* INTERACTIVE PENDING DAYS SELECTION */}
-        {!isFullyPaid && unpaidSchedules.length > 0 && (
-          <div className="bg-zinc-950/40 border border-zinc-900 rounded-xl p-3 space-y-2">
-            <div className="flex justify-between items-center pb-1 border-b border-zinc-800/40">
-              <span className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">
-                Selecionar para PG / Cobrança
-              </span>
-              <span className="text-[10px] text-yellow-500 font-black font-mono">
-                {selectedUnpaidDates.length === 1 
-                  ? "1 marcada" 
-                  : `${selectedUnpaidDates.length} marcadas`}
-              </span>
-            </div>
-            
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-800">
-              {unpaidSchedules.slice(0, 10).map((date, index) => {
-                const isSelected = selectedUnpaidDates.includes(date);
-                const labelDate = formatFriendlyDate(date);
-                const yesterdayStr = addDays(baseToday, -1);
-                const isOverdue = date < yesterdayStr;
-                const isYesterdayDate = date === yesterdayStr;
-                const isTodayDate = date === baseToday;
-                const displayIndex = paidCount + index + 1;
-                
-                return (
-                  <button
-                    key={date}
-                    type="button"
-                    onClick={() => {
-                      if (isSelected) {
-                        setSelectedUnpaidDates(prev => prev.filter(d => d !== date));
-                      } else {
-                        setSelectedUnpaidDates(prev => [...prev, date].sort());
-                      }
-                    }}
-                    className={`flex-shrink-0 p-2 rounded-xl text-left border transition-all flex flex-col justify-between min-w-[100px] h-[75px] cursor-pointer ${
-                      isSelected 
-                        ? "bg-emerald-500/15 border-emerald-500 text-white" 
-                        : isOverdue 
-                          ? "bg-amber-500/5 hover:bg-amber-500/10 border-amber-500/20 text-zinc-400" 
-                          : isYesterdayDate
-                            ? "bg-emerald-500/5 hover:bg-emerald-500/10 border-emerald-500/20 text-zinc-300"
-                            : "bg-zinc-900/40 hover:bg-zinc-900/60 border-zinc-850 text-zinc-400"
-                    }`}
-                  >
-                    <div className="flex justify-between items-center w-full">
-                      <span className="font-mono text-[9px] text-zinc-500 font-bold">
-                        #{displayIndex}
-                      </span>
-                      <span className={`text-[8px] px-1 rounded font-black uppercase ${
-                        isOverdue 
-                          ? "bg-amber-500/10 text-amber-500" 
-                          : isYesterdayDate
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : isTodayDate 
-                              ? "bg-yellow-500/10 text-yellow-500" 
-                              : "bg-zinc-800 text-zinc-500"
-                      }`}>
-                        {isOverdue ? "Atraso" : isYesterdayDate ? "Ontem" : isTodayDate ? "Hoje" : "Futuro"}
-                      </span>
-                    </div>
-                    
-                    <span className="font-bold text-[10px] tracking-tight truncate mt-1">
-                      {labelDate}
-                    </span>
-                    
-                    <div className={`mt-1.5 w-full py-0.5 rounded text-center text-[9px] font-black tracking-wider transition-all uppercase ${
-                      isSelected 
-                        ? "bg-emerald-600 text-white shadow-[0_0_8px_rgba(16,185,129,0.25)]" 
-                        : "bg-zinc-950/60 hover:bg-zinc-900 text-zinc-500 border border-zinc-850"
-                    }`}>
-                      {isSelected ? "✓ PG" : "Marcar"}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            {selectedUnpaidDates.length > 0 && (
-              <div className="flex justify-between items-center text-[10px] font-mono text-zinc-400 bg-zinc-900/40 p-1.5 rounded-lg">
-                <span>Total Marcado para PG:</span>
-                <span className="font-black text-emerald-400 font-bold">
-                  R$ {(selectedUnpaidDates.length * activeLoan.dailyRate).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </span>
+        {/* ALERTA DINÂMICO DE ATENDIMENTO/FECHAMENTO DE CAIXA ÀS 19:00 */}
+        {!isFullyPaid && (
+          <div className="space-y-2 mt-2">
+            {isDelayed && (daysBehind > 1 || (daysBehind === 1 && !isTodayPending)) ? (
+              <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-2.5 flex flex-col gap-1.5 animate-fade-in">
+                <div className="flex items-center gap-1.5 text-red-400">
+                  <AlertTriangle className="w-4 h-4 shrink-0 animate-pulse" />
+                  <span className="text-[10px] font-black uppercase tracking-wider">Atraso de Dias Anteriores</span>
+                </div>
+                <p className="text-[10px] text-zinc-350 font-medium leading-relaxed">
+                  Este cliente possui <span className="text-red-400 font-bold font-mono">{daysBehind} diária(s) pendente(s)</span>.
+                </p>
+                <button
+                  onClick={handleWhatsAppCharge}
+                  className="mt-1 w-full py-1.5 bg-red-600 hover:bg-red-505 text-white font-extrabold text-[9px] rounded-lg flex items-center justify-center gap-1 uppercase tracking-wider transition-colors cursor-pointer border-none"
+                >
+                  <Send className="w-3 h-3" />
+                  Cobrar agora (WhatsApp)
+                </button>
               </div>
-            )}
+            ) : isTodayPending ? (
+              isAfter7PM ? (
+                <div className="bg-red-500/15 border border-red-500/35 rounded-xl p-2.5 flex flex-col gap-1.5 animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.15)]">
+                  <div className="flex items-center gap-1.5 text-red-400">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Alerta: Caixa Fechado (19h00)</span>
+                  </div>
+                  <p className="text-[10px] text-zinc-200 font-extrabold leading-relaxed">
+                    O caixa fechou às 19:00 e o cliente <span className="text-red-400 font-bold underline">não pagou</span> a diária de hoje!
+                  </p>
+                  <button
+                    onClick={handleWhatsAppCharge}
+                    className="mt-1 w-full py-2 bg-emerald-600 hover:bg-emerald-505 text-white font-black text-[10px] rounded-lg flex items-center justify-center gap-1 uppercase tracking-wider shadow-md transition-all cursor-pointer border-none"
+                  >
+                    <Send className="w-3.5 h-3.5 text-white" />
+                    Mandar Cobrança com PIX
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-2.5 flex flex-col gap-1.5 animate-fade-in">
+                  <div className="flex items-center gap-1.5 text-amber-500">
+                    <Clock className="w-4 h-4 shrink-0 animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Aguardando Pagamento de Hoje</span>
+                  </div>
+                  <p className="text-[10px] text-zinc-350 font-medium leading-relaxed">
+                    O cliente está <span className="text-amber-400 font-bold">EM DIA</span> até as <span className="text-amber-400 font-bold font-mono">19:00</span> de hoje.
+                  </p>
+                  <button
+                    onClick={handleWhatsAppCharge}
+                    className="mt-1 w-full py-1.5 bg-amber-500 hover:bg-amber-405 text-zinc-950 font-extrabold text-[9px] rounded-lg flex items-center justify-center gap-1 uppercase tracking-wider transition-colors cursor-pointer border-none"
+                  >
+                    <Send className="w-3 h-3 text-zinc-950" />
+                    Lembrete do Dia (WhatsApp)
+                  </button>
+                </div>
+              )
+            ) : null}
           </div>
         )}
 
@@ -1319,13 +1286,10 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
             {!isFullyPaid ? (
               <button
                 onClick={() => {
-                  const initialCount = selectedUnpaidDates.length > 0 ? selectedUnpaidDates.length : 1;
-                  setPayDaysCount(initialCount);
+                  setPayDaysCount(1);
                   setPaymentDate(simulationDate || getTodayStr());
                   
-                  const defaultRef = selectedUnpaidDates.length > 0 
-                    ? selectedUnpaidDates[0] 
-                    : getPredictedRefDate(referenceDate, 1, isExcludingSundays);
+                  const defaultRef = getPredictedRefDate(referenceDate, 1, isExcludingSundays);
                   setCustomRefDate(defaultRef);
 
                   setIsExpandingPay(!isExpandingPay);
@@ -1336,11 +1300,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 title="Registrar recebimento de parcela de diária"
               >
                 <PlusCircle className="w-4 h-4 text-zinc-950 shrink-0" />
-                <span>
-                  {selectedUnpaidDates.length > 0
-                    ? `Baixa ${selectedUnpaidDates.length}x`
-                    : "Recebimento"}
-                </span>
+                <span>Recebimento</span>
               </button>
             ) : (
               <div className="px-3 py-2.5 text-center bg-yellow-500/10 text-yellow-500 text-xs font-bold rounded-xl border border-yellow-500/20 flex items-center justify-center gap-1">
