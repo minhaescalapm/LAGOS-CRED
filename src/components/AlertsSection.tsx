@@ -13,8 +13,8 @@ interface AlertsSectionProps {
 
 export function AlertsSection({ clientsWithLoans, onOpenPixModal, onEditClient, onDeleteClient, onIncrementCharge }: AlertsSectionProps) {
   const [deletingClientId, setDeletingClientId] = useState<string | null>(null);
-  // Filter delayed clients (daysBehind > 0 or isDelayed)
-  const delayedClients = clientsWithLoans.filter(c => c.isDelayed && c.activeLoan);
+  // Filter delayed clients (daysBehind > 0 or isDelayed) that still have pending installments
+  const delayedClients = clientsWithLoans.filter(c => c.isDelayed && c.activeLoan && c.paidCount < c.totalDays);
 
   // Exact step 5 template
   const handleChargeWhatsApp = (client: ClientWithLoanDetails) => {

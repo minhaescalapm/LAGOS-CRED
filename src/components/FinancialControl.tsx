@@ -15,7 +15,11 @@ import {
   Sparkles,
   DollarSign,
   HelpCircle,
-  PiggyBank
+  PiggyBank,
+  Search,
+  Users,
+  CheckCircle2,
+  Clock
 } from "lucide-react";
 
 interface FinancialControlProps {
@@ -34,13 +38,47 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
   // Simulator configuration states
   const [simulationMoMGrace, setSimulationMoMGrace] = useState<number>(20); // 20% requested default
   const [customInterestRate, setCustomInterestRate] = useState<number>(42); // 42% standard interest rate defaulted
-  const [reportTab, setReportTab] = useState<"semanal" | "mensal" | "reinvestimentos">("semanal");
+  const [reportTab, setReportTab] = useState<"saldos_receber" | "semanal" | "mensal" | "reinvestimentos">("saldos_receber");
+  const [remainingSearchTerm, setRemainingSearchTerm] = useState<string>("");
   const [newAporteAmount, setNewAporteAmount] = useState<number>(1000);
   const [newAporteRate, setNewAporteRate] = useState<number>(30);
 
   // 1. Calculate general financial aggregates from database
   const totalLent = allLoans.reduce((sum, l) => sum + l.amountInvested, 0);
   const totalReceived = allPayments.reduce((sum, p) => sum + p.amount, 0);
+
+  // Calculation of Remaining Balance per Client and Grand Sum
+  const clientsRemainingBalances = clientsWithLoans
+    .filter(c => c.activeLoan !== null && !c.client.archived)
+    .map(c => {
+      const loan = c.activeLoan!;
+      const paidCount = c.paidCount;
+      const totalDays = loan.totalDays;
+      const remainingCount = Math.max(0, totalDays - paidCount);
+      const remainingAmount = remainingCount * loan.dailyRate;
+      const totalContract = loan.totalAmount || (loan.dailyRate * totalDays);
+      return {
+        client: c.client,
+        loan,
+        paidCount,
+        totalDays,
+        remainingCount,
+        remainingAmount,
+        totalContract,
+        isDelayed: c.isDelayed,
+        daysBehind: c.daysBehind
+      };
+    })
+    .sort((a, b) => b.remainingAmount - a.remainingAmount);
+
+  const activeRemainingClients = clientsRemainingBalances.filter(c => c.remainingCount > 0);
+  const totalRemainingSum = activeRemainingClients.reduce((sum, c) => sum + c.remainingAmount, 0);
+  const totalRemainingInstallments = activeRemainingClients.reduce((sum, c) => sum + c.remainingCount, 0);
+
+  const filteredRemainingClients = activeRemainingClients.filter(c => 
+    c.client.name.toLowerCase().includes(remainingSearchTerm.toLowerCase()) ||
+    c.client.phone.includes(remainingSearchTerm)
+  );
 
   // Find payments received in the last 7 days (Weekly report)
   const todayStr = getTodayStr();
@@ -230,7 +268,7 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
           </div>
         </div>
 
-        {/* CARD 3: VALOR A RECEBER (TODOS APORTES) */}
+        {/* CARD 3: RESTANTE A RECEBER (TODOS CLIENTES) */}
         <div className="bg-zinc-950/40 border border-zinc-850 p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group hover:border-sky-500/30 transition-all">
           <div className="absolute top-0 right-0 p-3 opacity-5">
             <Coins className="w-16 h-16 text-sky-400" />
@@ -239,13 +277,13 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
             <div className="p-2 bg-sky-500/10 text-sky-400 rounded-lg">
               <Coins className="w-4 h-4" />
             </div>
-            <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Valor a Receber (Todos Aportes)</span>
+            <span className="text-[10px] uppercase font-bold text-zinc-400 tracking-wider font-mono">Restante a Receber (Todos Clientes)</span>
           </div>
           <div>
             <h3 className="text-2xl sm:text-3xl font-black text-sky-400 font-mono tracking-tight">
-              {formatBRL(stats.futureProjections)}
+              {formatBRL(totalRemainingSum)}
             </h3>
-            <p className="text-[10px] text-zinc-500 mt-1">Total pendente a receber dos contratos ativos</p>
+            <p className="text-[10px] text-zinc-500 mt-1">Soma de todos os saldos restantes devedores ({totalRemainingInstallments} parcelas)</p>
           </div>
         </div>
 
@@ -301,7 +339,18 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
           </div>
           
           {/* Sub-tabs selector with premium design matching layout guidelines */}
-          <div className="flex bg-zinc-900/80 p-1 rounded-xl border border-zinc-800 self-start md:self-auto gap-1">
+          <div className="flex bg-zinc-900/80 p-1 rounded-xl border border-zinc-800 self-start md:self-auto gap-1 flex-wrap">
+            <button
+              onClick={() => setReportTab("saldos_receber")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                reportTab === "saldos_receber"
+                  ? "bg-amber-400 text-zinc-950 shadow-md shadow-amber-400/10"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              <Coins className="w-3.5 h-3.5" />
+              Saldos a Receber ({activeRemainingClients.length})
+            </button>
             <button
               onClick={() => setReportTab("semanal")}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
@@ -334,6 +383,159 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
             </button>
           </div>
         </div>
+
+        {/* SUB-TAB: SALDOS A RECEBER (TODOS OS CLIENTES) */}
+        {reportTab === "saldos_receber" && (
+          <div className="space-y-4 animate-fade-in">
+            {/* Summary Metrics Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-sky-500/20">
+                <span className="text-[9px] text-sky-400 uppercase font-bold tracking-wider block">Total a Receber Ainda</span>
+                <span className="text-xl font-black text-sky-400 font-mono block mt-1">
+                  {formatBRL(totalRemainingSum)}
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Soma exata de todos os saldos restantes ativos</span>
+              </div>
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
+                <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider block">Diárias Restantes no Total</span>
+                <span className="text-xl font-black text-zinc-200 font-mono block mt-1">
+                  {totalRemainingInstallments} <span className="text-xs text-zinc-500 font-normal">parcelas</span>
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Volume de cobranças diárias a serem recebidas</span>
+              </div>
+              <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
+                <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider block">Clientes com Saldo Devedor</span>
+                <span className="text-xl font-black text-zinc-200 font-mono block mt-1">
+                  {activeRemainingClients.length} <span className="text-xs text-zinc-500 font-normal">clientes ativos</span>
+                </span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Contratos em andamento com parcelas a pagar</span>
+              </div>
+            </div>
+
+            {/* Filter Search Input */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/30 p-2.5 rounded-xl border border-zinc-850">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filtrar por nome ou telefone do cliente..."
+                  value={remainingSearchTerm}
+                  onChange={(e) => setRemainingSearchTerm(e.target.value)}
+                  className="w-full bg-zinc-950/70 border border-zinc-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <span className="text-[10px] text-zinc-500 font-mono self-center px-1">
+                Mostrando {filteredRemainingClients.length} de {activeRemainingClients.length} clientes
+              </span>
+            </div>
+
+            {/* Remaining Balances Table */}
+            <div className="border border-zinc-900 rounded-xl overflow-hidden bg-zinc-950/20">
+              {filteredRemainingClients.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500 text-xs flex flex-col items-center gap-2">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-500/40" />
+                  <span>
+                    {remainingSearchTerm 
+                      ? "Nenhum cliente encontrado com esse termo." 
+                      : "Nenhum saldo pendente a receber! Todos os contratos estão quitados."}
+                  </span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-zinc-900/40 text-zinc-400 border-b border-zinc-850 text-[10px] font-bold uppercase tracking-wider">
+                        <th className="py-2.5 px-4">Cliente</th>
+                        <th className="py-2.5 px-3 text-right">Investido</th>
+                        <th className="py-2.5 px-3 text-right">Diária</th>
+                        <th className="py-2.5 px-3 text-right">Total Contrato</th>
+                        <th className="py-2.5 px-3 text-center">Progresso</th>
+                        <th className="py-2.5 px-3 text-center">Restam</th>
+                        <th className="py-2.5 px-4 text-right text-sky-400 font-black">Restante a Pagar</th>
+                        <th className="py-2.5 px-3 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-900/60 font-mono">
+                      {filteredRemainingClients.map((item) => (
+                        <tr key={item.loan.id} className="hover:bg-zinc-900/30 transition-colors">
+                          <td className="py-2.5 px-4 font-sans">
+                            <div className="font-bold text-zinc-200 text-xs">{item.client.name}</div>
+                            <div className="text-[10px] text-zinc-500 font-mono">
+                              {item.client.phone.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-zinc-400 font-bold">
+                            {formatBRL(item.loan.amountInvested)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-yellow-500 font-bold">
+                            {formatBRL(item.loan.dailyRate)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-zinc-300 font-bold">
+                            {formatBRL(item.totalContract)}
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-bold text-zinc-300">
+                            {item.paidCount} / {item.totalDays}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className="px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-300 font-bold text-[10px]">
+                              {item.remainingCount}x
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right">
+                            <span className="font-bold text-sky-400 text-xs">
+                              {formatBRL(item.remainingAmount)}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center font-sans">
+                            {item.isDelayed ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded text-[9px] font-bold">
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                Atrasado (-{item.daysBehind})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-zinc-800 text-zinc-400 rounded text-[9px] font-bold">
+                                <Clock className="w-2.5 h-2.5" />
+                                Em dia
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-zinc-900/60 text-white font-bold border-t-2 border-zinc-800 font-mono text-xs">
+                        <td className="py-3 px-4 uppercase font-sans text-[11px] text-zinc-300">
+                          Soma Total Geral ({filteredRemainingClients.length} clientes)
+                        </td>
+                        <td className="py-3 px-3 text-right text-zinc-300">
+                          {formatBRL(filteredRemainingClients.reduce((sum, c) => sum + c.loan.amountInvested, 0))}
+                        </td>
+                        <td className="py-3 px-3 text-right text-yellow-500">
+                          -
+                        </td>
+                        <td className="py-3 px-3 text-right text-zinc-200">
+                          {formatBRL(filteredRemainingClients.reduce((sum, c) => sum + c.totalContract, 0))}
+                        </td>
+                        <td className="py-3 px-3 text-center text-zinc-300">
+                          {filteredRemainingClients.reduce((sum, c) => sum + c.paidCount, 0)} pagas
+                        </td>
+                        <td className="py-3 px-3 text-center text-amber-400">
+                          {filteredRemainingClients.reduce((sum, c) => sum + c.remainingCount, 0)}x rest.
+                        </td>
+                        <td className="py-3 px-4 text-right text-sky-400 font-black text-sm">
+                          {formatBRL(filteredRemainingClients.reduce((sum, c) => sum + c.remainingAmount, 0))}
+                        </td>
+                        <td className="py-3 px-3 text-center text-[10px] text-zinc-400 font-sans">
+                          Pendente
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* SUB-TAB: WEEKLY REPORT */}
         {reportTab === "semanal" && (

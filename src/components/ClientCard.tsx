@@ -381,6 +381,8 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
   // Calculate percentage progress of paid daily rates
   const progressRatio = totalDays > 0 ? (paidCount / totalDays) * 100 : 0;
   const isFullyPaid = paidCount >= totalDays;
+  const remainingCount = Math.max(0, totalDays - paidCount);
+  const remainingAmount = Math.max(0, remainingCount * activeLoan.dailyRate);
 
   const predictedNewReferenceDate = getPredictedRefDate(customRefDate, payDaysCount - 1, isExcludingSundays);
 
@@ -528,7 +530,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
         </div>
 
         {/* METADADOS FINANCIAMENTO */}
-        <div className="mt-4 grid grid-cols-3 gap-2 py-2 border-y border-zinc-800/60 text-center">
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 py-2 border-y border-zinc-800/60 text-center">
           <div>
             <span className="text-[9px] text-zinc-550 block uppercase font-bold tracking-wider">Investido</span>
             <span className="font-mono text-xs font-bold text-zinc-300">{formatBRL(activeLoan.amountInvested)}</span>
@@ -541,6 +543,12 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
             <span className="text-[9px] text-zinc-550 block uppercase font-bold tracking-wider">Total</span>
             <span className="font-mono text-xs font-bold text-zinc-200">{formatBRL(activeLoan.dailyRate * activeLoan.totalDays)}</span>
           </div>
+          <div>
+            <span className="text-[9px] text-zinc-550 block uppercase font-bold tracking-wider">Restante a Pagar</span>
+            <span className={`font-mono text-xs font-bold ${remainingAmount > 0 ? "text-sky-400" : "text-emerald-400"}`}>
+              {formatBRL(remainingAmount)}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -549,8 +557,15 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
         {/* PROGRESS DISPLAY */}
         <div>
           <div className="flex justify-between items-center text-xs mb-1.5">
-            <span className="text-zinc-500 font-bold text-[9px] uppercase tracking-wider">Progresso de Diárias</span>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-zinc-500 font-bold text-[9px] uppercase tracking-wider">Progresso de Diárias</span>
+              {remainingCount > 0 && (
+                <span className="text-[9px] font-mono font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
+                  Falta {formatBRL(remainingAmount)} ({remainingCount}x)
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
               <span className="font-mono font-bold text-white text-[11px]">
                 {paidCount} de {totalDays} pagas
               </span>

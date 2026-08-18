@@ -50,7 +50,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"home" | "collections" | "financial_control" | "agenda" | "investimentos">("home");
   const [agendaPreSelectedDate, setAgendaPreSelectedDate] = useState<string | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "NO_LOAN">("ALL");
+  const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "COMPLETED" | "NO_LOAN">("ALL");
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
   const [allPayments, setAllPayments] = useState<Payment[]>([]);
 
@@ -419,17 +419,23 @@ export default function App() {
     
     if (!matchesSearch) return false;
 
+    const isCompleted = c.activeLoan && c.paidCount >= c.totalDays;
+
     if (filterType === "DELAYED") {
-      return c.isDelayed && c.activeLoan;
+      return c.isDelayed && c.activeLoan && !isCompleted;
     }
     if (filterType === "UP_TO_DATE") {
-      return !c.isDelayed && c.activeLoan && c.paidCount < c.totalDays;
+      return !c.isDelayed && c.activeLoan && !isCompleted;
+    }
+    if (filterType === "COMPLETED") {
+      return isCompleted;
     }
     if (filterType === "NO_LOAN") {
       return !c.activeLoan;
     }
 
-    return true; // "ALL"
+    // Default "ALL" (Todos Ativos): Exclude fully paid clients so they leave the active collection list
+    return !isCompleted;
   });
 
   if (!isLoggedIn) {
@@ -868,9 +874,10 @@ export default function App() {
               {/* Status Categorizer Badges */}
               <div className="flex flex-wrap gap-1.5 w-full lg:w-auto justify-start lg:justify-end">
                 {[
-                  { value: "ALL", label: "Todos" },
+                  { value: "ALL", label: "Todos Ativos" },
                   { value: "DELAYED", label: "Atrasados" },
                   { value: "UP_TO_DATE", label: "Em dia" },
+                  { value: "COMPLETED", label: "Quitados" },
                   { value: "NO_LOAN", label: "Sem Contrato" }
                 ].map(badge => (
                   <button
