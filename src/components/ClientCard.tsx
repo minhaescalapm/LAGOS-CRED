@@ -115,8 +115,8 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const [isRenewing, setIsRenewing] = useState(false);
   const [renewDebt, setRenewDebt] = useState(0.0); // Default: 0.00
   const [renewCapital, setRenewCapital] = useState(1000.0); // Default: 1000.00
-  const [renewTerm, setRenewTerm] = useState(26); // Prazo Desejado (Dias) Default: 26
-  const [renewBaseTerm, setRenewBaseTerm] = useState(26); // Prazo Base Padrão (Dias) Default: 26
+  const [renewTerm, setRenewTerm] = useState<number | "">(26); // Prazo Desejado (Dias) Default: 26
+  const [renewBaseTerm, setRenewBaseTerm] = useState<number | "">(26); // Prazo Base Padrão (Dias) Default: 26
   const [renewBaseRate, setRenewBaseRate] = useState(42.0); // Taxa Base Padrão (%) Default: 42.0
   const [renewExtraRate, setRenewExtraRate] = useState(1.5); // Taxa Extra Diária (%) Default: 1.5
   const [renewStartDate, setRenewStartDate] = useState(() => simulationDate || getTodayStr());
@@ -1157,7 +1157,10 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 type="number"
                 min="1"
                 value={renewTerm}
-                onChange={e => setRenewTerm(Number(e.target.value) || 0)}
+                onChange={e => setRenewTerm(e.target.value === "" ? "" : Number(e.target.value))}
+                onBlur={() => {
+                  if (renewTerm === "" || Number(renewTerm) < 1) setRenewTerm(26);
+                }}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1.5 px-2 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50 font-bold"
                 required
               />
@@ -1170,7 +1173,10 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 type="number"
                 min="1"
                 value={renewBaseTerm}
-                onChange={e => setRenewBaseTerm(Number(e.target.value) || 0)}
+                onChange={e => setRenewBaseTerm(e.target.value === "" ? "" : Number(e.target.value))}
+                onBlur={() => {
+                  if (renewBaseTerm === "" || Number(renewBaseTerm) < 1) setRenewBaseTerm(26);
+                }}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1.5 px-2 text-xs text-white font-mono focus:outline-none focus:border-yellow-500/50 font-bold"
                 required
               />

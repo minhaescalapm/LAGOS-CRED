@@ -47,7 +47,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
   const [amountInvested, setAmountInvested] = useState<number | "">(
     clientToEdit && clientToEdit.activeLoan ? clientToEdit.activeLoan.amountInvested : ""
   );
-  const [totalDays, setTotalDays] = useState<number>(
+  const [totalDays, setTotalDays] = useState<number | "">(
     clientToEdit && clientToEdit.activeLoan ? clientToEdit.activeLoan.totalDays : 26
   ); 
   const [dailyRate, setDailyRate] = useState<number | "">(
@@ -227,7 +227,8 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
   const handleAmountChange = (val: number | "") => {
     setAmountInvested(val);
     if (val !== "") {
-      updateDailyRateFromInterest(val, interestRate, totalDays);
+      const days = Number(totalDays) || 0;
+      updateDailyRateFromInterest(Number(val), interestRate, days);
     } else {
       setDailyRate("");
     }
@@ -236,16 +237,18 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
   const handleInterestChange = (newInterest: number) => {
     setInterestRate(newInterest);
     const principal = Number(amountInvested) || 0;
-    if (principal > 0) {
-      updateDailyRateFromInterest(principal, newInterest, totalDays);
+    const days = Number(totalDays) || 0;
+    if (principal > 0 && days > 0) {
+      updateDailyRateFromInterest(principal, newInterest, days);
     }
   };
 
-  const handleDaysChange = (newDays: number) => {
+  const handleDaysChange = (newDays: number | "") => {
     setTotalDays(newDays);
     const principal = Number(amountInvested) || 0;
-    if (principal > 0) {
-      updateDailyRateFromInterest(principal, interestRate, newDays);
+    const days = Number(newDays) || 0;
+    if (principal > 0 && days > 0) {
+      updateDailyRateFromInterest(principal, interestRate, days);
     }
   };
 
@@ -659,19 +662,28 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                   {/* Tempo do Empréstimo (Dias) */}
                   <div>
                     <label className="text-[10px] text-zinc-400 font-medium block mb-1">Tempo de Prazo (Dias)</label>
-                    <div className="relative">
-                      <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                      <input 
-                        type="number"
-                        min="1"
-                        max="365"
-                        placeholder="Ex: 26"
-                        value={totalDays}
-                        onChange={e => handleDaysChange(Math.max(1, Number(e.target.value) || 1))}
-                        className="w-full bg-zinc-950/60 border border-zinc-855 focus:border-amber-400 focus:outline-none rounded-xl py-2.5 pl-10 pr-3 text-sm text-zinc-100 transition-colors font-mono font-bold"
-                        required
-                      />
-                    </div>
+                    <input 
+                      type="number"
+                      min="1"
+                      max="365"
+                      placeholder="Ex: 26"
+                      value={totalDays}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === "") {
+                          handleDaysChange("");
+                        } else {
+                          handleDaysChange(Number(val));
+                        }
+                      }}
+                      onBlur={() => {
+                        if (totalDays === "" || Number(totalDays) < 1) {
+                          handleDaysChange(26);
+                        }
+                      }}
+                      className="w-full bg-zinc-950/60 border border-zinc-855 focus:border-amber-400 focus:outline-none rounded-xl py-2 px-3 text-sm text-zinc-100 transition-colors font-mono font-bold h-[42px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      required
+                    />
                   </div>
 
                   {/* Data Inicial */}
