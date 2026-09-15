@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Lock, Phone, Eye, EyeOff, LogIn, ShieldAlert, KeyRound, DollarSign, Wallet } from "lucide-react";
+import { Lock, Phone, Eye, EyeOff, LogIn, ShieldAlert, KeyRound, DollarSign, Wallet, RotateCcw, Check } from "lucide-react";
 
 interface LoginScreenProps {
   onLoginSuccess: () => void;
@@ -11,6 +11,44 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [cacheClearedSuccess, setCacheClearedSuccess] = useState(false);
+
+  const handleForceClearCache = async () => {
+    setClearingCache(true);
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const reg of regs) {
+          await reg.unregister();
+        }
+      }
+      if ('caches' in window) {
+        const names = await caches.keys();
+        for (const name of names) {
+          await caches.delete(name);
+        }
+      }
+      // Remove any foreign storage keys from other apps
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && !key.startsWith('gestao_emprestimos_') && !key.startsWith('supabase.') && !key.startsWith('wiped_')) {
+          if (/conta|bill|despesa|expense|minha/i.test(key)) {
+            localStorage.removeItem(key);
+          }
+        }
+      }
+      setCacheClearedSuccess(true);
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
+    } catch (e) {
+      console.error(e);
+      window.location.reload();
+    } finally {
+      setClearingCache(false);
+    }
+  };
 
   // Apply phone mask as user types: (XX) XXXXX-XXXX
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -62,11 +100,11 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       <div className="w-full max-w-md bg-zinc-900/60 border border-zinc-800/80 rounded-3xl p-8 shadow-2xl relative backdrop-blur-md space-y-6">
         {/* Brand/Logo Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex p-3.5 bg-yellow-500/10 text-yellow-500 rounded-2xl border border-yellow-500/20 shadow-lg mb-1">
-            <Wallet className="w-8 h-8" />
+          <div className="inline-flex p-3 bg-gradient-to-tr from-yellow-500 to-amber-400 text-black font-extrabold text-base tracking-tight rounded-2xl shadow-[0_0_20px_rgba(245,158,11,0.3)] mb-1">
+            LC
           </div>
-          <h1 className="text-2xl font-black text-white tracking-tight">FinancEsfera</h1>
-          <p className="text-xs text-zinc-500">Sistema Seguro de Gestão de Empréstimos</p>
+          <h1 className="text-2xl font-black text-white tracking-tight">LAGOS CREDIT</h1>
+          <p className="text-xs text-zinc-400 font-medium">Gestão de Empréstimos Diários</p>
         </div>
 
         {/* Login Form */}
@@ -147,10 +185,32 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </form>
 
         {/* Footer info */}
-        <div className="text-center pt-2">
+        <div className="text-center pt-2 space-y-3">
           <p className="text-[10px] text-zinc-600">
             Acesso restrito ao administrador. Conexão criptografada de alta segurança.
           </p>
+
+          <div className="pt-2 border-t border-zinc-800/60">
+            <button
+              type="button"
+              onClick={handleForceClearCache}
+              disabled={clearingCache}
+              className="text-[11px] text-zinc-500 hover:text-yellow-400 transition-colors inline-flex items-center gap-1.5 cursor-pointer py-1 px-2.5 rounded-lg hover:bg-zinc-800/40"
+              title="Apaga qualquer cache antigo ou aplicativo anterior do navegador"
+            >
+              {cacheClearedSuccess ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-400 font-semibold">Cache limpo com sucesso!</span>
+                </>
+              ) : (
+                <>
+                  <RotateCcw className={`w-3.5 h-3.5 ${clearingCache ? "animate-spin text-yellow-400" : ""}`} />
+                  <span>{clearingCache ? "Limpando caches..." : "Problemas ao carregar? Limpar cache e atualizar"}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

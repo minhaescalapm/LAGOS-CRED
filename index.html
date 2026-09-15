@@ -1,11 +1,62 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Gestão de Empréstimos Diários - Lagos Credit</title>
+    <meta name="description" content="Aplicativo PWA para controle financeiro, gestão de clientes, controle de diárias, cobrança via Pix e acompanhamento de contratos de empréstimos diários." />
+    <meta property="og:title" content="Gestão de Empréstimos Diários - Lagos Credit" />
+    <meta property="og:description" content="Aplicativo PWA para controle financeiro, gestão de clientes, controle de diárias, cobrança via Pix e acompanhamento de contratos de empréstimos diários." />
+    <meta name="theme-color" content="#0d0d0f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Lagos Credit" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <script>
+      // Clear out any old rogue Service Workers or Cache Storage from previous applications (e.g. "MINHAS CONTAS")
+      (function() {
+        try {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              if (registrations && registrations.length > 0) {
+                for (var i = 0; i < registrations.length; i++) {
+                  registrations[i].unregister();
+                }
+              }
+            });
+          }
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              if (names && names.length > 0) {
+                for (var i = 0; i < names.length; i++) {
+                  caches.delete(names[i]);
+                }
+              }
+            });
+          }
+          // Remove keys from any previous app like "MINHAS CONTAS" while keeping Lagos Credit data intact
+          if (typeof localStorage !== 'undefined') {
+            var keysToRemove = [];
+            for (var j = 0; j < localStorage.length; j++) {
+              var k = localStorage.key(j);
+              if (k && !k.startsWith('gestao_emprestimos_') && !k.startsWith('supabase.') && !k.startsWith('wiped_') && !k.startsWith('vite:')) {
+                if (/conta|bill|despesa|expense|minha/i.test(k)) {
+                  keysToRemove.push(k);
+                }
+              }
+            }
+            keysToRemove.forEach(function(k) {
+              localStorage.removeItem(k);
+            });
+          }
+        } catch (e) {
+          console.warn('Cache clearance error:', e);
+        }
+      })();
+    </script>
   </head>
-  <body>
+  <body class="bg-[#0d0d0f] text-zinc-100">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

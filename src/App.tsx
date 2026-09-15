@@ -277,6 +277,40 @@ export default function App() {
     }
   };
 
+  // Handle clearing browser cache, service workers and legacy apps
+  const handleForceClearBrowserCache = async () => {
+    if (window.confirm("Deseja limpar todo o cache e arquivos temporários do navegador deste aparelho e forçar a atualização para o Lagos Credit? (Seus clientes cadastrados no banco NÃO serão afetados)")) {
+      try {
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            await reg.unregister();
+          }
+        }
+        if ('caches' in window) {
+          const names = await caches.keys();
+          for (const name of names) {
+            await caches.delete(name);
+          }
+        }
+        // Remove foreign storage keys from other apps
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && !key.startsWith('gestao_emprestimos_') && !key.startsWith('supabase.') && !key.startsWith('wiped_')) {
+            if (/conta|bill|despesa|expense|minha/i.test(key)) {
+              localStorage.removeItem(key);
+            }
+          }
+        }
+        alert("Cache limpo com sucesso! A página será atualizada agora.");
+        window.location.reload();
+      } catch (e) {
+        console.error(e);
+        window.location.reload();
+      }
+    }
+  };
+
   // Handle register payment (+1 logic)
   const handleRegisterPayment = async (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => {
     setIsLoading(true);
@@ -484,6 +518,17 @@ export default function App() {
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Limpar Banco</span>
+            </button>
+
+            {/* Limpar Cache do Aparelho */}
+            <button
+              onClick={handleForceClearBrowserCache}
+              disabled={isLoading}
+              className="p-1.5 sm:px-3 sm:py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-semibold rounded-lg border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Limpar caches antigos do navegador e forçar atualização"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-sky-400" />
+              <span className="hidden lg:inline">Limpar Cache</span>
             </button>
 
             {/* Gerar Demo */}
@@ -1179,6 +1224,22 @@ export default function App() {
                   3. Toque em <strong className="text-zinc-100">Instalar aplicativo</strong> ou <strong className="text-zinc-100">Adicionar à tela inicial</strong>.<br />
                   4. Confirme clicando em instalar.
                 </p>
+              </div>
+
+              {/* Troubleshooting cache from old apps */}
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2 text-left">
+                <span className="text-[10px] font-extrabold text-amber-400 uppercase tracking-wider block">Apareceu outro app (ex: Minhas Contas)?</span>
+                <p className="text-[11px] text-zinc-300">
+                  Se o navegador do seu celular guardou arquivos temporários de outro app, clique abaixo para forçar a limpeza total:
+                </p>
+                <button
+                  type="button"
+                  onClick={handleForceClearBrowserCache}
+                  className="w-full py-2 bg-zinc-900 hover:bg-zinc-850 text-yellow-400 font-bold text-xs rounded-lg border border-yellow-500/30 flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Limpar Cache e Forçar Atualização
+                </button>
               </div>
 
               <button
