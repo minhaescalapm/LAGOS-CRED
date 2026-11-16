@@ -1,15 +1,17 @@
-import { Client, Loan, Payment, ClientWithLoanDetails, FinancialStats } from "../types";
+import { Client, Loan, Payment, ClientWithLoanDetails, FinancialStats, PaymentFrequency } from "../types";
 import { 
   addDays, 
-  differenceInDays, 
   getTodayStr, 
   getFinancialCycle, 
-  isInSameFinancialCycle, 
   getLastNFinancialCycles,
-  isSunday,
-  isSaturday,
-  getElapsedDaysExcludingSundays
+  isSunday
 } from "../utils/dateUtils";
+import {
+  computeDefaultFirstDueDate,
+  getLoanFrequency,
+  getLoanScheduledDates,
+  stepReferenceDate
+} from "../utils/loanSchedule";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 
 // Keys for LocalStorage fallback
@@ -17,6 +19,7 @@ const CLIENTS_KEY = "gestao_emprestimos_clients";
 const LOANS_KEY = "gestao_emprestimos_loans";
 const PAYMENTS_KEY = "gestao_emprestimos_payments";
 const ARCHIVED_CLIENTS_KEY = "gestao_emprestimos_archived_client_ids";
+const LOAN_META_KEY = "gestao_emprestimos_loan_schedule_meta";
 
 function generateUUID(): string {
   try {
@@ -143,18 +146,82 @@ function mapClients(supabaseClients: any[]): Client[] {
   }));
 }
 
+type LoanScheduleMeta = {
+  frequency?: PaymentFrequency;
+  paymentWeekday?: number;
+  firstDueDate?: string;
+};
+
+function getLoanMetaMap(): Record<string, LoanScheduleMeta> {
+  try {
+    const raw = localStorage.getItem(LOAN_META_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLoanMeta(loanId: string, meta: LoanScheduleMeta): void {
+  try {
+    const current = getLoanMetaMap();
+    current[loanId] = {
+      frequency: meta.frequency || "daily",
+      paymentWeekday: meta.paymentWeekday,
+      firstDueDate: meta.firstDueDate
+    };
+    localStorage.setItem(LOAN_META_KEY, JSON.stringify(current));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+function isMissingColumnError(error: any): boolean {
+  const msg = String(error?.message || error?.details || "").toLowerCase();
+  const code = String(error?.code || "");
+  return (
+    code === "PGRST204" ||
+    code === "42703" ||
+    msg.includes("column") ||
+    msg.includes("schema cache")
+  );
+}
+
 function mapLoans(supabaseLoans: any[]): Loan[] {
-  return supabaseLoans.map(l => ({
-    id: String(l.id),
-    clientId: String(l.client_id || l.clientId || ""),
-    amountInvested: Number(l.amount_invested ?? l.amountInvested ?? 0),
-    totalAmount: Number(l.total_amount ?? l.totalAmount ?? 0),
-    dailyRate: Number(l.daily_rate ?? l.dailyRate ?? 0),
-    totalDays: Number(l.total_days ?? l.totalDays ?? 0),
-    startDate: String(l.start_date || l.startDate || ""),
-    excludeSundays: l.exclude_sundays !== undefined ? Boolean(l.exclude_sundays) : (l.excludeSundays !== undefined ? Boolean(l.excludeSundays) : true),
-    status: l.status ? String(l.status) : undefined
-  }));
+  const metaMap = getLoanMetaMap();
+  return supabaseLoans.map(l => {
+    const id = String(l.id);
+    const localMeta = metaMap[id];
+    const rawFreq = l.frequency ?? localMeta?.frequency;
+    const frequency: PaymentFrequency =
+      rawFreq === "weekly" || rawFreq === "biweekly" || rawFreq === "monthly" || rawFreq === "daily"
+        ? rawFreq
+        : "daily";
+    const rawWeekday = l.payment_weekday ?? l.paymentWeekday ?? localMeta?.paymentWeekday;
+    const paymentWeekday =
+      rawWeekday !== undefined && rawWeekday !== null && rawWeekday !== ""
+        ? Number(rawWeekday)
+        : undefined;
+    const rawFirstDue = l.first_due_date || l.firstDueDate || localMeta?.firstDueDate;
+    return {
+      id,
+      clientId: String(l.client_id || l.clientId || ""),
+      amountInvested: Number(l.amount_invested ?? l.amountInvested ?? 0),
+      totalAmount: Number(l.total_amount ?? l.totalAmount ?? 0),
+      dailyRate: Number(l.daily_rate ?? l.dailyRate ?? 0),
+      totalDays: Number(l.total_days ?? l.totalDays ?? 0),
+      startDate: String(l.start_date || l.startDate || ""),
+      excludeSundays:
+        l.exclude_sundays !== undefined
+          ? Boolean(l.exclude_sundays)
+          : l.excludeSundays !== undefined
+            ? Boolean(l.excludeSundays)
+            : true,
+      status: l.status ? String(l.status) : undefined,
+      frequency,
+      paymentWeekday: Number.isFinite(paymentWeekday) ? paymentWeekday : undefined,
+      firstDueDate: rawFirstDue ? String(rawFirstDue) : undefined
+    };
+  });
 }
 
 function mapPayments(supabasePayments: any[]): Payment[] {
@@ -231,15 +298,16 @@ export function buildClientLoanDetail(
   );
   const paidCount = loanPayments.length;
   const totalDays = loan.totalDays;
+  const freq = getLoanFrequency(loan);
 
   let referenceDate = "";
   if (paidCount > 0) {
     const lastPaidRef = loanPayments[paidCount - 1].referenceDate;
     referenceDate = lastPaidRef;
 
-    // Se domingos são isentos, e o dia seguinte à última diária paga é domingo,
-    // o cliente está coberto também no domingo!
-    if (loan.excludeSundays !== false) {
+    // Se for modalidade diária com domingos isentos e o dia seguinte for domingo,
+    // o cliente está coberto também no domingo.
+    if (freq === "daily" && loan.excludeSundays !== false) {
       const nextDay = addDays(lastPaidRef, 1);
       if (isSunday(nextDay)) {
         referenceDate = nextDay;
@@ -249,19 +317,8 @@ export function buildClientLoanDetail(
     referenceDate = loan.startDate;
   }
 
-  const allScheduledDates: string[] = [];
-  let current = addDays(loan.startDate, 1);
-  const isExcluding = loan.excludeSundays !== false;
-  let added = 0;
-  let iterations = 0;
-  while (added < totalDays && iterations < 1000) {
-    iterations++;
-    if (!isExcluding || !isSunday(current)) {
-      allScheduledDates.push(current);
-      added++;
-    }
-    current = addDays(current, 1);
-  }
+  const allScheduledDates = getLoanScheduledDates(loan);
+  const nextDueDate = paidCount < allScheduledDates.length ? allScheduledDates[paidCount] : undefined;
 
   const isToday = simulationDate === getTodayStr();
   const currentHour = new Date().getHours();
@@ -278,6 +335,7 @@ export function buildClientLoanDetail(
     paidCount,
     totalDays,
     referenceDate,
+    nextDueDate,
     isDelayed,
     daysBehind: paidCount >= totalDays ? 0 : daysBehind,
     chargeCountToday
@@ -641,10 +699,25 @@ export const dbService = {
     amountInvested: number, 
     totalDays: number, 
     dailyRate: number, 
-    startDate: string
+    startDate: string,
+    options?: {
+      frequency?: PaymentFrequency;
+      paymentWeekday?: number;
+      firstDueDate?: string;
+      excludeSundays?: boolean;
+    }
   ): Promise<Loan> {
     // Ensure the client is unarchived when starting a new contract
     await this.unarchiveClient(clientId);
+
+    const frequency: PaymentFrequency = options?.frequency || "daily";
+    const excludeSundays = options?.excludeSundays !== undefined ? options.excludeSundays : true;
+    const paymentWeekday = options?.paymentWeekday;
+    const firstDueDate =
+      options?.firstDueDate ||
+      (frequency !== "daily"
+        ? computeDefaultFirstDueDate(startDate, frequency, excludeSundays, paymentWeekday)
+        : undefined);
 
     const newLoan: Loan = {
       id: generateUUID(),
@@ -653,22 +726,51 @@ export const dbService = {
       totalAmount: Math.round(dailyRate * totalDays),
       dailyRate,
       totalDays,
-      startDate
+      startDate,
+      excludeSundays,
+      status: "active",
+      frequency,
+      paymentWeekday,
+      firstDueDate
     };
+
+    saveLoanMeta(newLoan.id, { frequency, paymentWeekday, firstDueDate });
 
     if (supabase) {
       try {
-        const { error } = await supabase.from("loans").insert({
+        const fullPayload: Record<string, any> = {
           id: newLoan.id,
           client_id: newLoan.clientId,
           amount_invested: newLoan.amountInvested,
           total_amount: newLoan.totalAmount,
           daily_rate: newLoan.dailyRate,
           total_days: newLoan.totalDays,
-          start_date: newLoan.startDate
-        });
+          start_date: newLoan.startDate,
+          exclude_sundays: excludeSundays,
+          status: "active",
+          frequency,
+          payment_weekday: paymentWeekday ?? null,
+          first_due_date: firstDueDate ?? null
+        };
+
+        const { error } = await supabase.from("loans").insert(fullPayload);
         if (error) {
-          throw new Error(`Erro ao salvar empréstimo no Supabase: ${error.message}.`);
+          if (isMissingColumnError(error)) {
+            const { error: baseErr } = await supabase.from("loans").insert({
+              id: newLoan.id,
+              client_id: newLoan.clientId,
+              amount_invested: newLoan.amountInvested,
+              total_amount: newLoan.totalAmount,
+              daily_rate: newLoan.dailyRate,
+              total_days: newLoan.totalDays,
+              start_date: newLoan.startDate
+            });
+            if (baseErr) {
+              throw new Error(`Erro ao salvar empréstimo no Supabase: ${baseErr.message}.`);
+            }
+          } else {
+            throw new Error(`Erro ao salvar empréstimo no Supabase: ${error.message}.`);
+          }
         }
         return newLoan;
       } catch (err: any) {
@@ -689,21 +791,57 @@ export const dbService = {
     amountInvested: number, 
     totalDays: number, 
     dailyRate: number, 
-    startDate: string
+    startDate: string,
+    options?: {
+      frequency?: PaymentFrequency;
+      paymentWeekday?: number;
+      firstDueDate?: string;
+    }
   ): Promise<Loan> {
     const totalAmount = Math.round(dailyRate * totalDays);
 
+    if (options?.frequency !== undefined) {
+      saveLoanMeta(id, {
+        frequency: options.frequency,
+        paymentWeekday: options.paymentWeekday,
+        firstDueDate: options.firstDueDate
+      });
+    }
+
     if (supabase) {
       try {
-        const { error } = await supabase.from("loans").update({
+        const updatePayload: Record<string, any> = {
           amount_invested: amountInvested,
           total_days: totalDays,
           daily_rate: dailyRate,
           total_amount: totalAmount,
           start_date: startDate
-        }).eq("id", id);
+        };
+        if (options?.frequency !== undefined) {
+          updatePayload.frequency = options.frequency;
+          updatePayload.payment_weekday = options.paymentWeekday ?? null;
+          updatePayload.first_due_date = options.firstDueDate ?? null;
+        }
+
+        const { error } = await supabase.from("loans").update(updatePayload).eq("id", id);
         if (error) {
-          throw new Error(`Erro ao atualizar contrato no Supabase: ${error.message}`);
+          if (isMissingColumnError(error)) {
+            const { error: baseErr } = await supabase
+              .from("loans")
+              .update({
+                amount_invested: amountInvested,
+                total_days: totalDays,
+                daily_rate: dailyRate,
+                total_amount: totalAmount,
+                start_date: startDate
+              })
+              .eq("id", id);
+            if (baseErr) {
+              throw new Error(`Erro ao atualizar contrato no Supabase: ${baseErr.message}`);
+            }
+          } else {
+            throw new Error(`Erro ao atualizar contrato no Supabase: ${error.message}`);
+          }
         }
         
         // Fetch loan to get client_id
@@ -718,7 +856,10 @@ export const dbService = {
           totalAmount,
           startDate,
           excludeSundays: oldLoan?.excludeSundays,
-          status: oldLoan?.status
+          status: oldLoan?.status,
+          frequency: options?.frequency ?? oldLoan?.frequency,
+          paymentWeekday: options?.frequency !== undefined ? options.paymentWeekday : oldLoan?.paymentWeekday,
+          firstDueDate: options?.frequency !== undefined ? options.firstDueDate : oldLoan?.firstDueDate
         };
       } catch (err: any) {
         console.error("Supabase editActiveLoan error:", err);
@@ -735,6 +876,11 @@ export const dbService = {
         l.dailyRate = dailyRate;
         l.totalAmount = totalAmount;
         l.startDate = startDate;
+        if (options?.frequency !== undefined) {
+          l.frequency = options.frequency;
+          l.paymentWeekday = options.paymentWeekday;
+          l.firstDueDate = options.firstDueDate;
+        }
         updatedLoan = l;
       }
     });
@@ -792,7 +938,12 @@ export const dbService = {
     totalDays: number,
     dailyRate: number,
     startDate: string,
-    totalAmount?: number
+    totalAmount?: number,
+    options?: {
+      frequency?: PaymentFrequency;
+      paymentWeekday?: number;
+      firstDueDate?: string;
+    }
   ): Promise<Loan> {
     const loans = await this.getLoans({ throwOnCloudError: true });
     const oldLoan = loans.find(l => l.id === oldLoanId);
@@ -802,6 +953,15 @@ export const dbService = {
 
     const clientId = oldLoan.clientId;
     const finalTotalAmount = totalAmount !== undefined ? totalAmount : Math.round(dailyRate * totalDays);
+    const frequency = options?.frequency ?? oldLoan.frequency ?? "daily";
+    const paymentWeekday = options?.frequency !== undefined ? options.paymentWeekday : oldLoan.paymentWeekday;
+    const excludeSundays = oldLoan.excludeSundays !== false;
+    const firstDueDate =
+      options?.firstDueDate ||
+      (frequency !== "daily"
+        ? computeDefaultFirstDueDate(startDate, frequency, excludeSundays, paymentWeekday)
+        : undefined);
+
     const newLoan: Loan = {
       id: generateUUID(),
       clientId,
@@ -810,9 +970,14 @@ export const dbService = {
       dailyRate,
       totalDays,
       startDate,
-      excludeSundays: oldLoan.excludeSundays !== false, // inherit exclusion rule
-      status: "active"
+      excludeSundays,
+      status: "active",
+      frequency,
+      paymentWeekday,
+      firstDueDate
     };
+
+    saveLoanMeta(newLoan.id, { frequency, paymentWeekday, firstDueDate });
 
     if (supabase) {
       try {
@@ -838,11 +1003,14 @@ export const dbService = {
             total_days: totalDays,
             start_date: startDate,
             exclude_sundays: newLoan.excludeSundays,
-            status: "active"
+            status: "active",
+            frequency,
+            payment_weekday: paymentWeekday ?? null,
+            first_due_date: firstDueDate ?? null
           });
 
         if (insertError) {
-          console.warn("Could not insert new loan with status field, retrying without status column...", insertError);
+          console.warn("Could not insert new loan with extended fields, retrying...", insertError);
           const { error: retryError1 } = await supabase
             .from("loans")
             .insert({
@@ -1001,18 +1169,17 @@ export const dbService = {
 
       const newPayments: Payment[] = [];
       const isExcluding = loan.excludeSundays !== false;
+      const freq = getLoanFrequency(loan);
+      const scheduledDates = getLoanScheduledDates(loan);
 
       if (customReferenceDate) {
         let currentRef = customReferenceDate;
-        if (isExcluding && isSunday(currentRef)) {
+        if (freq === "daily" && isExcluding && isSunday(currentRef)) {
           currentRef = addDays(currentRef, 1);
         }
         for (let i = 0; i < daysToRegister; i++) {
           if (i > 0) {
-            currentRef = addDays(currentRef, 1);
-            if (isExcluding && isSunday(currentRef)) {
-              currentRef = addDays(currentRef, 1);
-            }
+            currentRef = stepReferenceDate(currentRef, 1, loan);
           }
           newPayments.push({
             id: generateUUID(),
@@ -1023,12 +1190,16 @@ export const dbService = {
           });
         }
       } else {
-        let currentRef = startingRefDate;
+        let currentRef = countAlreadyPaid > 0
+          ? loanPayments[loanPayments.length - 1].referenceDate
+          : loan.startDate;
+
         for (let i = 0; i < daysToRegister; i++) {
-          currentRef = addDays(currentRef, 1);
-          // Skip Sundays! If currentRef is Sunday and excludeSundays is true, shift it to Monday
-          if (isExcluding && isSunday(currentRef)) {
-            currentRef = addDays(currentRef, 1);
+          const scheduleCandidate = scheduledDates[countAlreadyPaid + i];
+          if (scheduleCandidate && (countAlreadyPaid === 0 || scheduleCandidate > currentRef)) {
+            currentRef = scheduleCandidate;
+          } else {
+            currentRef = stepReferenceDate(currentRef, 1, loan);
           }
           newPayments.push({
             id: generateUUID(),
@@ -1136,15 +1307,28 @@ export const dbService = {
 
       const isExcluding = loan.excludeSundays !== false;
       const todayStr = getTodayStr();
+      const startDateChanged = targetStartDate !== loan.startDate;
+      const freq = getLoanFrequency(loan);
+      const effectiveFirstDueDate =
+        freq !== "daily"
+          ? (startDateChanged
+              ? computeDefaultFirstDueDate(targetStartDate, freq, isExcluding, loan.paymentWeekday)
+              : loan.firstDueDate)
+          : undefined;
+
+      const scheduledDates = getLoanScheduledDates(
+        {
+          ...loan,
+          startDate: targetStartDate,
+          firstDueDate: effectiveFirstDueDate
+        },
+        validatedPaidCount
+      );
 
       // Build the target payment list preserving existing paymentDate & id where possible
       const targetPayments: Payment[] = [];
-      let currentRef = targetStartDate;
       for (let i = 0; i < validatedPaidCount; i++) {
-        currentRef = addDays(currentRef, 1);
-        if (isExcluding && isSunday(currentRef)) {
-          currentRef = addDays(currentRef, 1);
-        }
+        const currentRef = scheduledDates[i] || stepReferenceDate(targetStartDate, i + 1, loan);
         const existing = existingLoanPayments[i];
         targetPayments.push({
           id: existing ? existing.id : generateUUID(),
@@ -1155,7 +1339,14 @@ export const dbService = {
         });
       }
 
-      const startDateChanged = targetStartDate !== loan.startDate;
+      if (startDateChanged && freq !== "daily") {
+        saveLoanMeta(loanId, {
+          frequency: freq,
+          paymentWeekday: loan.paymentWeekday,
+          firstDueDate: effectiveFirstDueDate
+        });
+      }
+
       const overlapCount = Math.min(validatedPaidCount, existingLoanPayments.length);
       const refsChanged = existingLoanPayments
         .slice(0, overlapCount)

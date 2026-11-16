@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { dbService, buildClientLoanDetail, deduplicateAndSortPayments } from "./services/dbService";
-import { ClientWithLoanDetails, FinancialStats, Loan, Payment } from "./types";
+import { ClientWithLoanDetails, FinancialStats, Loan, Payment, PaymentFrequency } from "./types";
 import { getTodayStr, formatFriendlyDate } from "./utils/dateUtils";
+import { FREQUENCY_LABELS, getLoanFrequency } from "./utils/loanSchedule";
 import { FinancialSummary } from "./components/FinancialSummary";
 import { getSupabaseDiagnostics, DiagnosticResult } from "./services/supabaseClient";
 import { StatsSection } from "./components/StatsSection";
@@ -53,6 +54,7 @@ export default function App() {
   const [agendaPreSelectedDate, setAgendaPreSelectedDate] = useState<string | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "COMPLETED" | "NO_LOAN">("ALL");
+  const [frequencyFilter, setFrequencyFilter] = useState<"ALL" | PaymentFrequency>("ALL");
   const [allLoans, setAllLoans] = useState<Loan[]>([]);
   const [allPayments, setAllPayments] = useState<Payment[]>([]);
 
@@ -154,6 +156,9 @@ export default function App() {
     startDate: string;
     clientId?: string;
     alreadyPaidCount?: number;
+    frequency?: PaymentFrequency;
+    paymentWeekday?: number;
+    firstDueDate?: string;
   }) => {
     setIsLoading(true);
     try {
@@ -172,7 +177,12 @@ export default function App() {
         data.amountInvested,
         data.totalDays,
         data.dailyRate,
-        data.startDate
+        data.startDate,
+        {
+          frequency: data.frequency,
+          paymentWeekday: data.paymentWeekday,
+          firstDueDate: data.firstDueDate
+        }
       );
 
       // Se houver parcelas já pagas informadas no simulador, nós as registramos de forma sequencial retroativa
@@ -201,6 +211,9 @@ export default function App() {
     dailyRate: number;
     startDate: string;
     alreadyPaidCount?: number;
+    frequency?: PaymentFrequency;
+    paymentWeekday?: number;
+    firstDueDate?: string;
   }) => {
     if (!editingClient) return;
     setIsLoading(true);
@@ -213,14 +226,22 @@ export default function App() {
           data.amountInvested,
           data.totalDays,
           data.dailyRate,
-          data.startDate
+          data.startDate,
+          {
+            frequency: data.frequency,
+            paymentWeekday: data.paymentWeekday,
+            firstDueDate: data.firstDueDate
+          }
         );
 
         const paidCountChanged = data.alreadyPaidCount !== undefined && data.alreadyPaidCount !== editingClient.paidCount;
         const startDateChanged = data.startDate !== editingClient.activeLoan.startDate;
         const dailyRateChanged = data.dailyRate !== editingClient.activeLoan.dailyRate;
+        const frequencyChanged = (data.frequency || "daily") !== getLoanFrequency(editingClient.activeLoan);
+        const weekdayChanged = data.paymentWeekday !== editingClient.activeLoan.paymentWeekday;
+        const firstDueChanged = data.firstDueDate !== editingClient.activeLoan.firstDueDate;
 
-        if (paidCountChanged || startDateChanged || dailyRateChanged) {
+        if (paidCountChanged || startDateChanged || dailyRateChanged || frequencyChanged || weekdayChanged || firstDueChanged) {
           await dbService.adjustLoanPaymentsAndStartDate(
             editingClient.activeLoan.id,
             data.alreadyPaidCount !== undefined ? data.alreadyPaidCount : editingClient.paidCount,
@@ -233,7 +254,12 @@ export default function App() {
           data.amountInvested,
           data.totalDays,
           data.dailyRate,
-          data.startDate
+          data.startDate,
+          {
+            frequency: data.frequency,
+            paymentWeekday: data.paymentWeekday,
+            firstDueDate: data.firstDueDate
+          }
         );
 
         if (data.alreadyPaidCount && data.alreadyPaidCount > 0) {
@@ -394,11 +420,16 @@ export default function App() {
     totalDays: number,
     dailyRate: number,
     startDate: string,
-    totalAmount?: number
+    totalAmount?: number,
+    options?: {
+      frequency?: PaymentFrequency;
+      paymentWeekday?: number;
+      firstDueDate?: string;
+    }
   ) => {
     setIsLoading(true);
     try {
-      await dbService.renewLoan(oldLoanId, amountInvested, totalDays, dailyRate, startDate, totalAmount);
+      await dbService.renewLoan(oldLoanId, amountInvested, totalDays, dailyRate, startDate, totalAmount, options);
       await refreshData();
     } catch (err: any) {
       console.error("Erro ao renovar contrato:", err);
@@ -491,6 +522,11 @@ export default function App() {
     
     if (!matchesSearch) return false;
 
+    if (frequencyFilter !== "ALL") {
+      if (!c.activeLoan) return false;
+      if (getLoanFrequency(c.activeLoan) !== frequencyFilter) return false;
+    }
+
     const isCompleted = c.activeLoan && c.paidCount >= c.totalDays;
 
     if (filterType === "DELAYED") {
@@ -529,7 +565,7 @@ export default function App() {
               <h1 className="font-extrabold text-md md:text-lg tracking-tight bg-gradient-to-r from-zinc-100 via-zinc-200 to-yellow-500 bg-clip-text text-transparent">
                 LAGOS CREDIT
               </h1>
-              <p className="text-[10px] text-zinc-500 font-medium">Gestão de Empréstimos Diários</p>
+              <p className="text-[10px] text-zinc-500 font-medium">Gestão de Empréstimos • Diário, Semanal, Quinzenal e Mensal</p>
             </div>
           </div>
 
@@ -966,27 +1002,48 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Status Categorizer Badges */}
-              <div className="flex flex-wrap gap-1.5 w-full lg:w-auto justify-start lg:justify-end">
-                {[
-                  { value: "ALL", label: "Todos Ativos" },
-                  { value: "DELAYED", label: "Atrasados" },
-                  { value: "UP_TO_DATE", label: "Em dia" },
-                  { value: "COMPLETED", label: "Quitados" },
-                  { value: "NO_LOAN", label: "Sem Contrato" }
-                ].map(badge => (
-                  <button
-                    key={badge.value}
-                    onClick={() => setFilterType(badge.value as any)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                      filterType === badge.value
-                        ? "bg-yellow-500 text-zinc-950 border-yellow-500 shadow-[0_2px_8px_rgba(234,179,8,0.2)]"
-                        : "bg-zinc-950/40 border-zinc-800 text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    {badge.label}
-                  </button>
-                ))}
+              {/* Status & Frequency Categorizer Badges */}
+              <div className="flex flex-col items-start lg:items-end gap-2 w-full lg:w-auto">
+                <div className="flex flex-wrap gap-1.5 w-full lg:w-auto justify-start lg:justify-end">
+                  {[
+                    { value: "ALL", label: "Todos Ativos" },
+                    { value: "DELAYED", label: "Atrasados" },
+                    { value: "UP_TO_DATE", label: "Em dia" },
+                    { value: "COMPLETED", label: "Quitados" },
+                    { value: "NO_LOAN", label: "Sem Contrato" }
+                  ].map(badge => (
+                    <button
+                      key={badge.value}
+                      onClick={() => setFilterType(badge.value as any)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                        filterType === badge.value
+                          ? "bg-yellow-500 text-zinc-950 border-yellow-500 shadow-[0_2px_8px_rgba(234,179,8,0.2)]"
+                          : "bg-zinc-950/40 border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      {badge.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Frequency Filter Row */}
+                <div className="flex flex-wrap items-center gap-1.5 w-full lg:w-auto justify-start lg:justify-end">
+                  <span className="text-[10px] font-mono uppercase text-zinc-500 font-bold mr-1">Modalidade:</span>
+                  {(["ALL", "daily", "weekly", "biweekly", "monthly"] as const).map(freqOpt => (
+                    <button
+                      key={freqOpt}
+                      type="button"
+                      onClick={() => setFrequencyFilter(freqOpt)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                        frequencyFilter === freqOpt
+                          ? "bg-amber-400/15 text-amber-400 border-amber-400/40"
+                          : "bg-zinc-950/40 border-zinc-800/80 text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      {freqOpt === "ALL" ? "Todas" : FREQUENCY_LABELS[freqOpt]}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1431,9 +1488,6 @@ export default function App() {
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Caso já tenha a tabela criada anteriormente, execute este comando para adicionar a nova coluna:
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
-
 CREATE TABLE IF NOT EXISTS public.loans (
     id TEXT PRIMARY KEY,
     client_id TEXT NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
@@ -1443,8 +1497,19 @@ CREATE TABLE IF NOT EXISTS public.loans (
     total_days INTEGER NOT NULL,
     start_date TEXT NOT NULL,
     exclude_sundays BOOLEAN DEFAULT true,
+    status TEXT DEFAULT 'active',
+    frequency TEXT DEFAULT 'daily',
+    payment_weekday INTEGER,
+    first_due_date TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Caso já tenha as tabelas criadas anteriormente, adicione as novas colunas com segurança:
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS frequency TEXT DEFAULT 'daily';
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS payment_weekday INTEGER;
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS first_due_date TEXT;
 
 CREATE TABLE IF NOT EXISTS public.payments (
     id TEXT PRIMARY KEY,
@@ -1486,9 +1551,6 @@ CREATE POLICY "Permitir delete para todos" ON public.payments FOR DELETE USING (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Adicionar coluna de arquivamento caso a tabela já exista
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
-
 CREATE TABLE IF NOT EXISTS public.loans (
     id TEXT PRIMARY KEY,
     client_id TEXT NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
@@ -1498,8 +1560,19 @@ CREATE TABLE IF NOT EXISTS public.loans (
     total_days INTEGER NOT NULL,
     start_date TEXT NOT NULL,
     exclude_sundays BOOLEAN DEFAULT true,
+    status TEXT DEFAULT 'active',
+    frequency TEXT DEFAULT 'daily',
+    payment_weekday INTEGER,
+    first_due_date TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Caso já tenha as tabelas criadas anteriormente, adicione as novas colunas com segurança:
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT false;
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active';
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS frequency TEXT DEFAULT 'daily';
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS payment_weekday INTEGER;
+ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS first_due_date TEXT;
 
 CREATE TABLE IF NOT EXISTS public.payments (
     id TEXT PRIMARY KEY,

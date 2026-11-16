@@ -1,6 +1,12 @@
 import React, { useState } from "react";
 import { ClientWithLoanDetails, FinancialStats, Loan, Payment } from "../types";
 import { getFinancialCycle, getTodayStr, addDays, formatFriendlyDate } from "../utils/dateUtils";
+import {
+  FREQUENCY_UNIT_SINGULAR,
+  getLoanFrequency,
+  getLoanFrequencyBadge,
+  getMonthlyBillingMultiplier
+} from "../utils/loanSchedule";
 import { 
   TrendingUp, 
   ArrowDownCircle, 
@@ -173,16 +179,15 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
     return sum + (c.daysBehind * c.activeLoan.dailyRate);
   }, 0);
 
-  // Active Monthly Billing Runway (Faturamento Mensal Ativo)
-  // Calculated as sum of (dailyRate * 30) of all active payers
+  // Active Monthly Billing Runway (Faturamento Mensal Ativo por modalidade)
   const activeMonthlyBillingPayers = payingClients.reduce((sum, c) => {
     if (!c.activeLoan) return sum;
-    return sum + (c.activeLoan.dailyRate * 30);
+    return sum + (c.activeLoan.dailyRate * getMonthlyBillingMultiplier(c.activeLoan));
   }, 0);
 
   const activeMonthlyBillingDelinquent = delinquentClients.reduce((sum, c) => {
     if (!c.activeLoan) return sum;
-    return sum + (c.activeLoan.dailyRate * 30);
+    return sum + (c.activeLoan.dailyRate * getMonthlyBillingMultiplier(c.activeLoan));
   }, 0);
 
   const totalActiveMonthlyBilling = activeMonthlyBillingPayers + activeMonthlyBillingDelinquent;
@@ -397,11 +402,11 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
                 <span className="text-[9px] text-zinc-500 block mt-0.5">Soma exata de todos os saldos restantes ativos</span>
               </div>
               <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
-                <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider block">Diárias Restantes no Total</span>
+                <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider block">Parcelas Restantes no Total</span>
                 <span className="text-xl font-black text-zinc-200 font-mono block mt-1">
                   {totalRemainingInstallments} <span className="text-xs text-zinc-500 font-normal">parcelas</span>
                 </span>
-                <span className="text-[9px] text-zinc-500 block mt-0.5">Volume de cobranças diárias a serem recebidas</span>
+                <span className="text-[9px] text-zinc-500 block mt-0.5">Volume de cobranças pendentes a receber</span>
               </div>
               <div className="bg-zinc-900/40 p-3.5 rounded-xl border border-zinc-900">
                 <span className="text-[9px] text-zinc-400 uppercase font-bold tracking-wider block">Clientes com Saldo Devedor</span>
@@ -447,7 +452,7 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
                       <tr className="bg-zinc-900/40 text-zinc-400 border-b border-zinc-850 text-[10px] font-bold uppercase tracking-wider">
                         <th className="py-2.5 px-4">Cliente</th>
                         <th className="py-2.5 px-3 text-right">Investido</th>
-                        <th className="py-2.5 px-3 text-right">Diária</th>
+                        <th className="py-2.5 px-3 text-right">Parcela</th>
                         <th className="py-2.5 px-3 text-right">Total Contrato</th>
                         <th className="py-2.5 px-3 text-center">Progresso</th>
                         <th className="py-2.5 px-3 text-center">Restam</th>
@@ -459,7 +464,12 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
                       {filteredRemainingClients.map((item) => (
                         <tr key={item.loan.id} className="hover:bg-zinc-900/30 transition-colors">
                           <td className="py-2.5 px-4 font-sans">
-                            <div className="font-bold text-zinc-200 text-xs">{item.client.name}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-zinc-200 text-xs">{item.client.name}</span>
+                              <span className="px-1.5 py-0.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 rounded text-[9px] font-bold font-mono">
+                                {getLoanFrequencyBadge(item.loan)}
+                              </span>
+                            </div>
                             <div className="text-[10px] text-zinc-500 font-mono">
                               {item.client.phone.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")}
                             </div>
@@ -841,13 +851,13 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
               <span className="text-sm font-black font-mono text-zinc-100">{payingCount} <span className="text-[10px] text-zinc-500 font-normal">cli.</span></span>
             </div>
 
-            {/* Delinquent clients metrics group (Inadimplente) */}
+                    {/* Delinquent clients metrics group (Inadimplente) */}
             <div className="bg-zinc-900/30 border border-zinc-850 p-3 rounded-xl flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
                 <div>
                   <span className="text-xs font-bold text-zinc-200 block">Clientes Inadimplentes (Com Atraso)</span>
-                  <span className="text-[10px] text-zinc-500 font-mono">Atraso superior a 1 diária</span>
+                  <span className="text-[10px] text-zinc-500 font-mono">Atraso superior a 1 parcela</span>
                 </div>
               </div>
               <span className="text-sm font-black font-mono text-amber-400">{delinquentCount} <span className="text-[10px] text-zinc-500 font-normal">cli.</span></span>
@@ -865,7 +875,14 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
                     return (
                       <div key={client.activeLoan ? `delinquent-loan-${client.activeLoan.id}` : `delinquent-client-${client.client.id}`} className="pt-2 flex items-center justify-between gap-2 text-xs">
                         <div className="min-w-0 flex-1">
-                          <span className="font-bold text-zinc-200 block truncate">{client.client.name}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-zinc-200 truncate">{client.client.name}</span>
+                            {client.activeLoan && (
+                              <span className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 text-yellow-400 rounded text-[8px] font-bold font-mono shrink-0">
+                                {getLoanFrequencyBadge(client.activeLoan)}
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[9px] text-zinc-500 font-mono block">
                             {client.daysBehind}x em atraso • Total: <strong className="text-red-400">{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(overdueValue)}</strong>
                           </span>
@@ -877,7 +894,8 @@ export const FinancialControl: React.FC<FinancialControlProps> = ({
                             const dateFormatted = client.referenceDate 
                               ? client.referenceDate.split("-").reverse().join("/") 
                               : client.activeLoan.startDate.split("-").reverse().join("/");
-                            const message = `Olá *${client.client.name}*, tudo bem? Passando para lembrar da sua parcela diária de *R$ ${client.activeLoan.dailyRate.toFixed(2)}*. Progresso: *${client.paidCount} de ${client.totalDays} pagas*. Última atualização: *${dateFormatted}*. Você possui *${client.daysBehind} parcelas em atraso*. Chave Pix (E-mail): lagoscelular5@gmail.com`;
+                            const freq = getLoanFrequency(client.activeLoan);
+                            const message = `Olá *${client.client.name}*, tudo bem? Passando para lembrar da sua parcela ${FREQUENCY_UNIT_SINGULAR[freq]} de *R$ ${client.activeLoan.dailyRate.toFixed(2)}*. Progresso: *${client.paidCount} de ${client.totalDays} pagas*. Última atualização: *${dateFormatted}*. Você possui *${client.daysBehind} parcelas em atraso*. Chave Pix (E-mail): lagoscelular5@gmail.com`;
                             window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`, "_blank");
                           }}
                           className="px-2 py-1 bg-amber-500/10 hover:bg-amber-400 text-amber-400 hover:text-zinc-950 font-black text-[10px] rounded-lg border border-amber-500/20 transition-all flex items-center gap-1 shrink-0 cursor-pointer"

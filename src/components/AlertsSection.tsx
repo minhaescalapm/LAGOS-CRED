@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { ClientWithLoanDetails } from "../types";
 import { AlertCircle, CheckCircle, Smartphone, Copy, Pencil, Trash2, Send } from "lucide-react";
 import { formatFriendlyDate } from "../utils/dateUtils";
+import { FREQUENCY_UNIT_SINGULAR, getLoanFrequency, getLoanFrequencyBadge } from "../utils/loanSchedule";
 
 interface AlertsSectionProps {
   clientsWithLoans: ClientWithLoanDetails[];
@@ -28,8 +29,9 @@ export function AlertsSection({ clientsWithLoans, onOpenPixModal, onEditClient, 
       ? formatFriendlyDate(client.referenceDate) 
       : formatFriendlyDate(client.activeLoan.startDate);
 
+    const freq = getLoanFrequency(client.activeLoan);
     const messageTemplate = `Olá *${client.client.name}*, tudo bem?
-Passando para lembrar da sua parcela diária no valor de *R$ ${client.activeLoan.dailyRate.toFixed(2)}*.
+Passando para lembrar da sua parcela ${FREQUENCY_UNIT_SINGULAR[freq]} no valor de *R$ ${client.activeLoan.dailyRate.toFixed(2)}*.
 
 📊 *Seu Resumo:*
 Progresso: *${client.paidCount} de ${client.totalDays} pagas*
@@ -54,7 +56,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
         </div>
         <div>
           <h3 className="font-bold text-white text-xs sm:text-sm">Atenção Crítica</h3>
-          <p className="text-[10px] text-zinc-500 font-mono">Diárias pendentes encontradas</p>
+          <p className="text-[10px] text-zinc-500 font-mono">Parcelas pendentes encontradas</p>
         </div>
       </div>
 
@@ -78,6 +80,9 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                 <div>
                    <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-zinc-200 text-xs sm:text-sm">{client.client.name}</span>
+                    <span className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 text-yellow-400 text-[9px] font-bold rounded font-mono">
+                      {getLoanFrequencyBadge(client.activeLoan)}
+                    </span>
                     <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-500 text-[10px] font-extrabold rounded-full font-mono">
                       -{client.daysBehind}x
                     </span>
@@ -123,7 +128,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                   </div>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-400 font-mono">
                     <span>
-                      Diária: <strong className="text-white">R$ {client.activeLoan.dailyRate}</strong>
+                      Parcela: <strong className="text-white">R$ {client.activeLoan.dailyRate}</strong>
                     </span>
                     <span>
                       Coberto: <strong className="text-yellow-500">{formatFriendlyDate(client.referenceDate)}</strong>

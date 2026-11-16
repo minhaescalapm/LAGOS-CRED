@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { ClientWithLoanDetails, Loan, Payment } from "../types";
-import { addDays, formatFriendlyDate, isSunday } from "../utils/dateUtils";
+import { formatFriendlyDate } from "../utils/dateUtils";
+import { getLoanFrequencyBadge, getLoanScheduledDates } from "../utils/loanSchedule";
 import {
   Sun,
   CheckCircle2,
@@ -58,20 +59,8 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
       const loan = detail.activeLoan;
       if (!loan || loan.status === "completed" || detail.client.archived) return;
 
-      // Build scheduled dates for this contract
-      const scheduledDates: string[] = [];
-      let current = addDays(loan.startDate, 1);
-      const isExcluding = loan.excludeSundays !== false;
-      let added = 0;
-      let iterations = 0;
-      while (added < loan.totalDays && iterations < 1000) {
-        iterations++;
-        if (!isExcluding || !isSunday(current)) {
-          scheduledDates.push(current);
-          added++;
-        }
-        current = addDays(current, 1);
-      }
+      // Build scheduled dates for this contract (diária, semanal, quinzenal ou mensal)
+      const scheduledDates = getLoanScheduledDates(loan);
 
       const isScheduledToday = scheduledDates.includes(targetDate);
       if (!isScheduledToday) return;
@@ -211,7 +200,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
               {formatBRL(summary.morningTotal)}
             </div>
             <p className="text-[10px] text-zinc-500 mt-1">
-              Total agendado para hoje (sem somar diárias atrasadas)
+              Total agendado para hoje (diária, semanal, quinzenal e mensal, sem atrasadas)
             </p>
           </div>
         </div>
@@ -232,7 +221,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
               {formatBRL(summary.receivedTodayTotal)}
             </div>
             <p className="text-[10px] text-zinc-500 mt-1">
-              Soma real das diárias marcadas como pagas hoje
+              Soma real das parcelas marcadas como pagas hoje
             </p>
           </div>
         </div>
@@ -290,7 +279,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
 
             <p className="text-[10px] text-zinc-500 mt-1.5">
               {summary.morningTotal === 0
-                ? "Nenhuma diária agendada para hoje"
+                ? "Nenhuma parcela agendada para hoje"
                 : summary.surplusToday > 0
                   ? `Meta do dia batida! (+${formatBRL(summary.surplusToday)} em atrasos/adiantamentos)`
                   : summary.remainingToday === 0
@@ -327,9 +316,12 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
                     className="flex items-center justify-between gap-2 p-2.5 bg-zinc-950/60 border border-zinc-850 rounded-lg"
                   >
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-xs font-bold text-zinc-100 truncate">
                           {detail.client.name}
+                        </span>
+                        <span className="text-[9px] px-1.5 py-0.5 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded font-mono font-bold shrink-0">
+                          {getLoanFrequencyBadge(loan)}
                         </span>
                         {detail.isDelayed && (
                           <span className="text-[9px] px-1.5 py-0.5 bg-amber-500/15 text-amber-400 rounded font-mono font-bold flex items-center gap-0.5 shrink-0">
@@ -339,7 +331,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
                         )}
                       </div>
                       <span className="text-[10px] font-mono text-zinc-400">
-                        Diária do dia: <strong className="text-yellow-500">{formatBRL(dailyRate)}</strong> ({detail.paidCount}/{detail.totalDays})
+                        Parcela do dia: <strong className="text-yellow-500">{formatBRL(dailyRate)}</strong> ({detail.paidCount}/{detail.totalDays})
                       </span>
                     </div>
 

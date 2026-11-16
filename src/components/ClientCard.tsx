@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ClientWithLoanDetails } from "../types";
+import { ClientWithLoanDetails, PaymentFrequency } from "../types";
 import { 
   CheckCircle, 
   Clock, 
@@ -13,10 +13,21 @@ import {
   Pencil,
   Send,
   Sliders,
-  CalendarDays as CalendarDaysIcon,
   RefreshCw
 } from "lucide-react";
-import { formatFriendlyDate, formatDayMonthAbbr, addDays, getTodayStr, getRetroactiveStartDate, getElapsedDaysExcludingSundays, isSunday } from "../utils/dateUtils";
+import { formatFriendlyDate, addDays, getTodayStr, isSunday } from "../utils/dateUtils";
+import {
+  FREQUENCY_LABELS,
+  FREQUENCY_UNIT_PLURAL,
+  FREQUENCY_UNIT_SINGULAR,
+  WEEKDAY_NAMES_FULL,
+  WEEKDAY_NAMES_SHORT,
+  getLoanFrequency,
+  getLoanFrequencyBadge,
+  getLoanScheduledDates,
+  getRetroactiveStartDateForFrequency,
+  stepReferenceDate
+} from "../utils/loanSchedule";
 
 interface ClientCardProps {
   clientDetail: ClientWithLoanDetails;
@@ -27,7 +38,19 @@ interface ClientCardProps {
   onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => void;
   onToggleSunday?: (loanId: string) => void;
   onCopyContract?: (clientDetail: ClientWithLoanDetails) => void;
-  onRenewLoan?: (oldLoanId: string, amountInvested: number, totalDays: number, dailyRate: number, startDate: string, totalAmount?: number) => Promise<void>;
+  onRenewLoan?: (
+    oldLoanId: string,
+    amountInvested: number,
+    totalDays: number,
+    dailyRate: number,
+    startDate: string,
+    totalAmount?: number,
+    options?: {
+      frequency?: PaymentFrequency;
+      paymentWeekday?: number;
+      firstDueDate?: string;
+    }
+  ) => Promise<void>;
   simulationDate?: string;
   onIncrementCharge?: (clientId: string) => void;
 }
@@ -45,8 +68,9 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   simulationDate,
   onIncrementCharge
 }) => {
-  const { client, activeLoan, paidCount, totalDays, referenceDate, chargeCountToday } = clientDetail;
+  const { client, activeLoan, paidCount, totalDays, referenceDate, nextDueDate, chargeCountToday } = clientDetail;
 
+  const loanFreq = getLoanFrequency(activeLoan);
   const isExcludingSundays = activeLoan ? activeLoan.excludeSundays !== false : true;
   const baseToday = simulationDate || getTodayStr();
 
@@ -54,23 +78,10 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const currentHour = new Date().getHours();
   const isAfter7PM = currentHour >= 19;
 
-  // Generate all scheduled dates for the active loan
+  // Generate all scheduled dates for the active loan (supports daily, weekly, biweekly, monthly)
   const allScheduledDates = React.useMemo(() => {
     if (!activeLoan) return [];
-    const dates: string[] = [];
-    let current = addDays(activeLoan.startDate, 1);
-    const isExcluding = activeLoan.excludeSundays !== false;
-    let added = 0;
-    let iterations = 0;
-    while (added < activeLoan.totalDays && iterations < 1000) {
-      iterations++;
-      if (!isExcluding || !isSunday(current)) {
-        dates.push(current);
-        added++;
-      }
-      current = addDays(current, 1);
-    }
-    return dates;
+    return getLoanScheduledDates(activeLoan);
   }, [activeLoan]);
 
   const limitDateForCutoff = (isToday && !isAfter7PM) ? addDays(baseToday, -1) : baseToday;
@@ -78,32 +89,10 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const daysBehind = activeLoan ? Math.max(0, expectedPayments - paidCount) : 0;
   const isDelayed = activeLoan ? (daysBehind >= 1 && paidCount < totalDays) : false;
 
-  const isTodayPending = activeLoan ? (paidCount < totalDays) && (referenceDate < baseToday) : false;
+  const scheduledUpToToday = allScheduledDates.filter(d => d <= baseToday).length;
+  const isTodayScheduled = allScheduledDates.includes(baseToday);
+  const isTodayPending = activeLoan ? (paidCount < totalDays && scheduledUpToToday > paidCount) : false;
   const hasPaidToday = activeLoan ? clientDetail.payments.some(p => p.paymentDate === baseToday) : false;
-
-  // Actual stored referenceDate for the next installment (NEVER shifts a valid Saturday onto Sunday)
-  const getNextInstallmentRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
-    let currentRef = startRef || (activeLoan ? activeLoan.startDate : baseToday);
-    for (let i = 0; i < count; i++) {
-      currentRef = addDays(currentRef, 1);
-      if (excludeSundays && isSunday(currentRef)) {
-        currentRef = addDays(currentRef, 1);
-      }
-    }
-    return currentRef;
-  };
-
-  // Display coverage date (includes exempt Sunday right after Saturday)
-  const getPredictedRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
-    let currentRef = getNextInstallmentRefDate(startRef, count, excludeSundays);
-    if (excludeSundays) {
-      const nextDay = addDays(currentRef, 1);
-      if (isSunday(nextDay)) {
-        currentRef = nextDay;
-      }
-    }
-    return currentRef;
-  };
 
   const lastStoredRefDate = React.useMemo(() => {
     if (clientDetail.payments.length > 0) {
@@ -113,11 +102,40 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     return activeLoan ? activeLoan.startDate : baseToday;
   }, [clientDetail.payments, activeLoan, baseToday]);
 
+  // The first paidCount schedules are already paid. The rest are unpaid!
+  const unpaidSchedules = React.useMemo(() => {
+    return allScheduledDates.slice(paidCount);
+  }, [allScheduledDates, paidCount]);
+
+  // Actual stored referenceDate for the next installment
+  const getNextInstallmentRefDate = (startRef: string | null, count: number) => {
+    if (count <= 0) {
+      return startRef || lastStoredRefDate;
+    }
+    if (activeLoan && unpaidSchedules.length >= count && (!startRef || startRef === lastStoredRefDate)) {
+      return unpaidSchedules[count - 1];
+    }
+    const base = startRef || (activeLoan ? activeLoan.startDate : baseToday);
+    return activeLoan ? stepReferenceDate(base, count, activeLoan) : addDays(base, count);
+  };
+
+  // Display coverage date (includes exempt Sunday right after Saturday for daily loans)
+  const getPredictedRefDate = (startRef: string | null, count: number) => {
+    let currentRef = getNextInstallmentRefDate(startRef, count);
+    if (loanFreq === "daily" && isExcludingSundays) {
+      const nextDay = addDays(currentRef, 1);
+      if (isSunday(nextDay)) {
+        currentRef = nextDay;
+      }
+    }
+    return currentRef;
+  };
+
   const [isExpandingPay, setIsExpandingPay] = useState(false);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [payDaysCount, setPayDaysCount] = useState<number>(1);
   const [paymentDate, setPaymentDate] = useState(() => simulationDate || getTodayStr());
-  const [customRefDate, setCustomRefDate] = useState(() => getNextInstallmentRefDate(lastStoredRefDate, 1, isExcludingSundays));
+  const [customRefDate, setCustomRefDate] = useState(() => getNextInstallmentRefDate(lastStoredRefDate, 1));
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   // States for Contract Adjustments
@@ -130,11 +148,13 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const [isRenewing, setIsRenewing] = useState(false);
   const [renewDebt, setRenewDebt] = useState(0.0); // Default: 0.00
   const [renewCapital, setRenewCapital] = useState(1000.0); // Default: 1000.00
-  const [renewTerm, setRenewTerm] = useState<number | "">(26); // Prazo Desejado (Dias) Default: 26
-  const [renewBaseTerm, setRenewBaseTerm] = useState<number | "">(26); // Prazo Base Padrão (Dias) Default: 26
+  const [renewTerm, setRenewTerm] = useState<number | "">(26); // Prazo Desejado Default: 26
+  const [renewBaseTerm, setRenewBaseTerm] = useState<number | "">(26); // Prazo Base Padrão Default: 26
   const [renewBaseRate, setRenewBaseRate] = useState(42.0); // Taxa Base Padrão (%) Default: 42.0
-  const [renewExtraRate, setRenewExtraRate] = useState(1.5); // Taxa Extra Diária (%) Default: 1.5
+  const [renewExtraRate, setRenewExtraRate] = useState(1.5); // Taxa Extra (%) Default: 1.5
   const [renewStartDate, setRenewStartDate] = useState(() => simulationDate || getTodayStr());
+  const [renewFrequency, setRenewFrequency] = useState<PaymentFrequency>(() => getLoanFrequency(activeLoan));
+  const [renewWeekday, setRenewWeekday] = useState<number>(() => activeLoan?.paymentWeekday ?? 5);
 
   // Synchronize when parent triggers update/save
   React.useEffect(() => {
@@ -158,10 +178,19 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const handleOpenRenewalSimulator = () => {
     if (!activeLoan) return;
     const remainingDebt = Math.max(0, activeLoan.totalAmount - (paidCount * activeLoan.dailyRate));
+    const currentFreq = getLoanFrequency(activeLoan);
+    const defaultTermByFreq: Record<PaymentFrequency, number> = {
+      daily: 26,
+      weekly: activeLoan.totalDays || 4,
+      biweekly: activeLoan.totalDays || 4,
+      monthly: activeLoan.totalDays || 3
+    };
     setRenewDebt(remainingDebt);
     setRenewCapital(800.0);
-    setRenewTerm(26);
-    setRenewBaseTerm(26);
+    setRenewFrequency(currentFreq);
+    setRenewWeekday(activeLoan.paymentWeekday ?? 5);
+    setRenewTerm(defaultTermByFreq[currentFreq]);
+    setRenewBaseTerm(defaultTermByFreq[currentFreq]);
     setRenewBaseRate(42.0);
     setRenewExtraRate(1.5);
     setRenewStartDate(simulationDate || getTodayStr());
@@ -182,8 +211,8 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   }, [simulationDate]);
 
   React.useEffect(() => {
-    setCustomRefDate(getNextInstallmentRefDate(lastStoredRefDate, 1, isExcludingSundays));
-  }, [lastStoredRefDate, isExcludingSundays]);
+    setCustomRefDate(getNextInstallmentRefDate(lastStoredRefDate, 1));
+  }, [lastStoredRefDate, isExcludingSundays, activeLoan?.frequency, activeLoan?.paymentWeekday, activeLoan?.firstDueDate]);
 
   const handleAdjustmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,19 +225,24 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     }
   };
 
-  // Smart Calculations for instant preview & single-button adjustments using customizable reference date
-  const computedRetroStartDate = activeLoan 
-    ? addDays(getRetroactiveStartDate(adjustedBaseToday, adjustedPaidCount, isExcludingSundays), -1) 
+  // Smart Calculations for instant preview & single-button adjustments across all 4 frequencies
+  const computedRetroStartDate = activeLoan
+    ? getRetroactiveStartDateForFrequency(
+        adjustedBaseToday,
+        adjustedPaidCount,
+        loanFreq,
+        isExcludingSundays,
+        activeLoan.paymentWeekday
+      )
     : adjustedBaseToday;
-  const elapsedDaysBack = activeLoan 
-    ? getElapsedDaysExcludingSundays(addDays(adjustedStartDate, 1), adjustedBaseToday, isExcludingSundays) 
+  const elapsedScheduledBack = activeLoan
+    ? getLoanScheduledDates({
+        ...activeLoan,
+        startDate: adjustedStartDate,
+        firstDueDate: undefined
+      }).filter(d => d <= adjustedBaseToday).length
     : 0;
-  const expectedPaidCount = activeLoan ? Math.max(0, Math.min(elapsedDaysBack, totalDays)) : 0;
-
-  // The first paidCount schedules are already paid. The rest are unpaid!
-  const unpaidSchedules = React.useMemo(() => {
-    return allScheduledDates.slice(paidCount);
-  }, [allScheduledDates, paidCount]);
+  const expectedPaidCount = activeLoan ? Math.max(0, Math.min(elapsedScheduledBack, totalDays)) : 0;
 
   // Show temporary Whatsapp Button for the most recent payload
   const [showWhatsappReceipt, setShowWhatsappReceipt] = useState(false);
@@ -290,7 +324,7 @@ Estaremos a Disposição, não perca seu crédito.
     setReceiptCustomText(msg);
   };
 
-  // Handler for sending exact WhatsApp billing message (Step 5 template)
+  // Handler for sending exact WhatsApp billing message adapted to frequency
   const handleWhatsAppCharge = () => {
     if (!activeLoan) return;
 
@@ -298,9 +332,11 @@ Estaremos a Disposição, não perca seu crédito.
     onIncrementCharge?.(client.id);
 
     const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
+    const unitPlural = FREQUENCY_UNIT_PLURAL[loanFreq];
+    const unitSingular = FREQUENCY_UNIT_SINGULAR[loanFreq];
     const dateFormatted = paidCount > 0 
       ? formatFriendlyDate(referenceDate) 
-      : "Nenhuma diária paga";
+      : `Nenhuma parcela ${unitSingular} paga`;
 
     const lastUpdateFormatted = paidCount > 0 
       ? formatFriendlyDate(referenceDate) 
@@ -310,17 +346,19 @@ Estaremos a Disposição, não perca seu crédito.
 
     const valorCobrar = activeLoan.dailyRate;
     const chavePix = "lagoscelular5@gmail.com";
+    const pendingToCatchUp = Math.max(1, daysBehind + (isTodayPending && daysBehind === 0 ? 1 : 0));
 
     const messageTemplate = `Olá *${client.name}*, tudo bem?
-Passando para lembrar das parcelas diárias pendentes do seu contrato no valor individual de *R$ ${valorCobrar.toFixed(2)}*.
+Passando para lembrar das parcelas (${FREQUENCY_LABELS[loanFreq].toLowerCase()}) pendentes do seu contrato no valor individual de *R$ ${valorCobrar.toFixed(2)}*.
 
 ⚠️ *FAÇA SEU PAGAMENTO AGORA E EVITE JUROS.*
 
 📊 *Seu Resumo Geral:*
+- Modalidade: *${getLoanFrequencyBadge(activeLoan)}*
 - Progresso do Contrato: *${paidCount} de ${totalDays} pagas*
-- Sua última diária paga foi em: *${dateFormatted}*
+- Sua última parcela paga foi em: *${dateFormatted}*
 
-🗓️ *Última atualização dia ${lastUpdateFormatted}, e faltam ${daysBehind + (isTodayPending ? 1 : 0)} para ficar em dia.*
+🗓️ *Última atualização dia ${lastUpdateFormatted}, e faltam ${pendingToCatchUp} ${pendingToCatchUp === 1 ? "parcela" : unitPlural} para ficar em dia.*
 _(Cálculo desde a última atualização ${lastUpdateFormatted} até hoje ${todayFormatted})_
 
 🔑 *Nossa Chave Pix (E-mail):*
@@ -399,7 +437,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
   const remainingCount = Math.max(0, totalDays - paidCount);
   const remainingAmount = Math.max(0, remainingCount * activeLoan.dailyRate);
 
-  const predictedNewReferenceDate = getPredictedRefDate(customRefDate, payDaysCount - 1, isExcludingSundays);
+  const predictedNewReferenceDate = getPredictedRefDate(customRefDate, Math.max(0, payDaysCount - 1));
 
   // Trigger registration (with async lock to prevent duplicate/stale submits)
   const handlePaymentSubmit = async (e: React.FormEvent) => {
@@ -408,7 +446,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
     setIsSubmittingPayment(true);
     try {
       await onRegisterPayment(activeLoan.id, payDaysCount, paymentDate, customRefDate);
-      const finalRefDate = getPredictedRefDate(customRefDate, payDaysCount - 1, isExcludingSundays);
+      const finalRefDate = getPredictedRefDate(customRefDate, Math.max(0, payDaysCount - 1));
       setLastReceiptDetails({
         x: paidCount + payDaysCount,
         y: totalDays,
@@ -429,7 +467,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
     setIsSubmittingPayment(true);
     try {
       await onRegisterPayment(activeLoan.id, 1, baseToday);
-      const nextRef = getPredictedRefDate(lastStoredRefDate, 1, isExcludingSundays);
+      const nextRef = getPredictedRefDate(lastStoredRefDate, 1);
       setLastReceiptDetails({
         x: paidCount + 1,
         y: totalDays,
@@ -466,15 +504,20 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
       <div>
         <div className="flex justify-between items-start gap-2">
           <div>
-            <h4 className="font-bold text-white text-xs sm:text-sm leading-tight group-hover:text-yellow-500 transition-colors">
-              {client.name}
-            </h4>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h4 className="font-bold text-white text-xs sm:text-sm leading-tight group-hover:text-yellow-500 transition-colors">
+                {client.name}
+              </h4>
+              <span className="px-1.5 py-0.5 bg-yellow-500/10 border border-yellow-500/25 text-yellow-400 rounded text-[9px] font-black font-mono shrink-0">
+                {getLoanFrequencyBadge(activeLoan)}
+              </span>
+            </div>
             <span className="text-[10px] text-zinc-500 font-mono mt-0.5 block">
               Tel: {client.phone.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3")}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 self-start">
+          <div className="flex items-center gap-1.5 self-start flex-wrap justify-end">
             {/* Status indicator pill */}
             {isFullyPaid ? (
               <span className="p-1 px-2 bg-yellow-500/10 text-yellow-500 rounded-lg text-[9px] font-extrabold font-mono flex items-center gap-1">
@@ -582,7 +625,9 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
             <span className="font-mono text-xs font-bold text-zinc-300">{formatBRL(activeLoan.amountInvested)}</span>
           </div>
           <div>
-            <span className="text-[9px] text-zinc-550 block uppercase font-bold tracking-wider">Diária</span>
+            <span className="text-[9px] text-zinc-550 block uppercase font-bold tracking-wider">
+              {FREQUENCY_LABELS[loanFreq]}
+            </span>
             <span className="font-mono text-xs font-bold text-yellow-500">{formatBRL(activeLoan.dailyRate)}</span>
           </div>
           <div>
@@ -604,7 +649,9 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
         <div>
           <div className="flex justify-between items-center text-xs mb-1.5">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-zinc-500 font-bold text-[9px] uppercase tracking-wider">Progresso de Diárias</span>
+              <span className="text-zinc-500 font-bold text-[9px] uppercase tracking-wider">
+                Progresso ({FREQUENCY_LABELS[loanFreq]})
+              </span>
               {remainingCount > 0 && (
                 <span className="text-[9px] font-mono font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
                   Falta {formatBRL(remainingAmount)} ({remainingCount}x)
@@ -660,7 +707,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
             <div className="flex justify-between items-center w-full">
               <span className="text-[8px] text-zinc-500 uppercase font-bold tracking-wider flex items-center gap-1">
                 <CalendarDays className="w-3.5 h-3.5 text-yellow-500/60" />
-                Última Diária Paga
+                {paidCount > 0 ? "Última Paga" : "Próximo Venc."}
               </span>
               <button
                 type="button"
@@ -685,22 +732,34 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                     : "text-zinc-300"
               }`}
             >
-              {paidCount > 0 ? formatFriendlyDate(referenceDate) : "Nenhuma paga"}
+              {paidCount > 0
+                ? formatFriendlyDate(referenceDate)
+                : nextDueDate
+                  ? formatFriendlyDate(nextDueDate)
+                  : "Nenhuma paga"}
             </span>
           </div>
         </div>
 
+        {/* PRÓXIMO VENCIMENTO (QUANDO JÁ TEM PAGAMENTOS E AINDA NÃO QUITOU) */}
+        {!isFullyPaid && paidCount > 0 && nextDueDate && (
+          <div className="px-3 py-1.5 bg-zinc-900/40 border border-zinc-850 rounded-xl flex items-center justify-between text-[10px] font-mono">
+            <span className="text-zinc-400 uppercase font-bold tracking-wider">Próximo Vencimento:</span>
+            <span className="text-yellow-400 font-black">{formatFriendlyDate(nextDueDate)}</span>
+          </div>
+        )}
+
         {/* ALERTA DINÂMICO DE ATENDIMENTO/FECHAMENTO DE CAIXA ÀS 19:00 */}
         {!isFullyPaid && (
           <div className="space-y-2 mt-2">
-            {isDelayed && (daysBehind > 1 || (daysBehind === 1 && !isTodayPending)) ? (
+            {isDelayed && (daysBehind > 1 || (daysBehind === 1 && !(isTodayPending && isTodayScheduled))) ? (
               <div className="bg-red-500/10 border border-red-500/25 rounded-xl p-2.5 flex flex-col gap-1.5 animate-fade-in">
                 <div className="flex items-center gap-1.5 text-red-400">
                   <AlertTriangle className="w-4 h-4 shrink-0 animate-pulse" />
-                  <span className="text-[10px] font-black uppercase tracking-wider">Atraso de Dias Anteriores</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider">Atraso de Parcelas Anteriores</span>
                 </div>
                 <p className="text-[10px] text-zinc-350 font-medium leading-relaxed">
-                  Este cliente possui <span className="text-red-400 font-bold font-mono">{daysBehind} diária(s) pendente(s)</span>.
+                  Este cliente possui <span className="text-red-400 font-bold font-mono">{daysBehind} parcela(s) {FREQUENCY_UNIT_SINGULAR[loanFreq]} pendente(s)</span>.
                 </p>
                 <button
                   onClick={handleWhatsAppCharge}
@@ -718,7 +777,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                     <span className="text-[10px] font-black uppercase tracking-wider">Alerta: Caixa Fechado (19h00)</span>
                   </div>
                   <p className="text-[10px] text-zinc-200 font-extrabold leading-relaxed">
-                    O caixa fechou às 19:00 e o cliente <span className="text-red-400 font-bold underline">não pagou</span> a diária de hoje!
+                    O caixa fechou às 19:00 e o cliente <span className="text-red-400 font-bold underline">não pagou</span> a parcela de hoje!
                   </p>
                   <button
                     onClick={handleWhatsAppCharge}
@@ -750,8 +809,8 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
           </div>
         )}
 
-        {/* SUNDAY SETTING BUTTON */}
-        {onToggleSunday && (
+        {/* SUNDAY SETTING BUTTON (ONLY FOR DAILY) / FREQUENCY INFO (FOR WEEKLY, BIWEEKLY, MONTHLY) */}
+        {onToggleSunday && loanFreq === "daily" ? (
           <button
             id={`sunday-toggle-${activeLoan.id}`}
             onClick={() => onToggleSunday(activeLoan.id)}
@@ -760,11 +819,20 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 ? "bg-zinc-900/50 border-yellow-500/20 text-yellow-500 hover:bg-yellow-500/10 hover:border-yellow-500/40"
                 : "bg-zinc-950/40 border-zinc-800 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-400 hover:border-zinc-700"
             }`}
-            title="Clique para alternar de domingos"
+            title="Clique para alternar isenção de domingos"
           >
             <CalendarDays className="w-3.5 h-3.5" />
             {activeLoan.excludeSundays !== false ? "Domingos Isentos" : "Domingos Cobrados"}
           </button>
+        ) : (
+          <div className="w-full py-2 px-3 rounded-xl border border-yellow-500/20 bg-zinc-900/40 text-yellow-400 text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5">
+            <CalendarDays className="w-3.5 h-3.5" />
+            <span>
+              {loanFreq === "weekly" && activeLoan.paymentWeekday !== undefined
+                ? `Semanal • Toda ${WEEKDAY_NAMES_FULL[activeLoan.paymentWeekday]}`
+                : getLoanFrequencyBadge(activeLoan)}
+            </span>
+          </div>
         )}
       </div>
 
@@ -891,7 +959,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
       {isExpandingPay && (
         <form onSubmit={handlePaymentSubmit} className="bg-zinc-950/90 border border-zinc-800 p-3.5 rounded-xl space-y-3.5 animate-slide-down">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest block">Registrar Diárias</span>
+            <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest block">Registrar Parcelas ({FREQUENCY_LABELS[loanFreq]})</span>
             <button 
               type="button" 
               onClick={() => setIsExpandingPay(false)}
@@ -904,7 +972,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
           <div className="grid grid-cols-2 gap-2.5">
             {/* Stepper selectors */}
             <div>
-              <label className="text-[9px] text-zinc-400 block mb-1">Quantidade diárias</label>
+              <label className="text-[9px] text-zinc-400 block mb-1">Qtd. parcelas</label>
               <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
                 <button
                   type="button"
@@ -964,7 +1032,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 />
               </div>
               <div>
-                <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-0.5">🔄 Ref. da Diária</label>
+                <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-0.5">🔄 Ref. da Parcela</label>
                 <input
                   type="date"
                   value={customRefDate}
@@ -1143,7 +1211,11 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 prazo,
                 Number(novaParcelaDiaria.toFixed(2)),
                 renewStartDate,
-                Number(totalNovoContrato.toFixed(2))
+                Number(totalNovoContrato.toFixed(2)),
+                {
+                  frequency: renewFrequency,
+                  paymentWeekday: renewFrequency === "weekly" ? renewWeekday : undefined
+                }
               );
               setIsRenewing(false);
               alert("Renovação concluída com sucesso!");
@@ -1166,6 +1238,48 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
             >
               Fechar
             </button>
+          </div>
+
+          {/* Modalidade na Renovação */}
+          <div className="space-y-2 bg-zinc-900/50 border border-zinc-850 p-2.5 rounded-xl">
+            <label className="text-[9px] text-zinc-400 font-bold uppercase block">Modalidade de Pagamento</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {(["daily", "weekly", "biweekly", "monthly"] as PaymentFrequency[]).map((freq) => (
+                <button
+                  key={freq}
+                  type="button"
+                  onClick={() => setRenewFrequency(freq)}
+                  className={`py-1.5 px-1 rounded-lg text-[10px] font-extrabold border transition-all cursor-pointer ${
+                    renewFrequency === freq
+                      ? "bg-yellow-500 text-zinc-950 border-yellow-500"
+                      : "bg-zinc-950/60 text-zinc-400 border-zinc-800 hover:text-zinc-200"
+                  }`}
+                >
+                  {FREQUENCY_LABELS[freq]}
+                </button>
+              ))}
+            </div>
+            {renewFrequency === "weekly" && (
+              <div className="pt-1">
+                <label className="text-[8px] text-yellow-400 font-bold uppercase block mb-1">Dia Fixo da Semana</label>
+                <div className="grid grid-cols-7 gap-1">
+                  {WEEKDAY_NAMES_SHORT.map((wdLabel, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setRenewWeekday(idx)}
+                      className={`py-1 rounded text-[9px] font-bold border transition-all cursor-pointer ${
+                        renewWeekday === idx
+                          ? "bg-yellow-500 text-zinc-950 border-yellow-500"
+                          : "bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200"
+                      }`}
+                    >
+                      {wdLabel}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -1374,7 +1488,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                   setPayDaysCount(1);
                   setPaymentDate(simulationDate || getTodayStr());
                   
-                  const defaultRef = getNextInstallmentRefDate(lastStoredRefDate, 1, isExcludingSundays);
+                  const defaultRef = getNextInstallmentRefDate(lastStoredRefDate, 1);
                   setCustomRefDate(defaultRef);
 
                   setIsExpandingPay(!isExpandingPay);
@@ -1382,7 +1496,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                   setIsRenewing(false);
                 }}
                 className="px-3 py-2.5 bg-yellow-500 hover:bg-yellow-405 text-zinc-950 font-black text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-lg shadow-yellow-500/10 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                title="Registrar recebimento de parcela de diária"
+                title="Registrar recebimento de parcela"
               >
                 <PlusCircle className="w-4 h-4 text-zinc-950 shrink-0" />
                 <span>Recebimento</span>

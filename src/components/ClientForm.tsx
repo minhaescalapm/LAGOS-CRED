@@ -1,7 +1,17 @@
-import React, { useState, useEffect } from "react";
-import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil, Copy, Send } from "lucide-react";
-import { ClientWithLoanDetails, Client } from "../types";
-import { getTodayStr, getRetroactiveStartDate, addDays, formatFriendlyDate, getElapsedDaysExcludingSundays } from "../utils/dateUtils";
+import React, { useState, useEffect, useMemo } from "react";
+import { Plus, User, Phone, DollarSign, Calendar, X, Percent, CheckCircle, Pencil, Copy, Send, Repeat } from "lucide-react";
+import { ClientWithLoanDetails, Client, PaymentFrequency } from "../types";
+import { getTodayStr, addDays, formatFriendlyDate, formatDayMonth, getElapsedDaysExcludingSundays } from "../utils/dateUtils";
+import {
+  FREQUENCY_LABELS,
+  FREQUENCY_UNIT_PLURAL,
+  WEEKDAY_NAMES_FULL,
+  WEEKDAY_NAMES_SHORT,
+  computeDefaultFirstDueDate,
+  getLoanFrequency,
+  getLoanScheduledDates,
+  getRetroactiveStartDateForFrequency
+} from "../utils/loanSchedule";
 import { dbService } from "../services/dbService";
 
 interface ClientFormProps {
@@ -15,6 +25,9 @@ interface ClientFormProps {
     startDate: string;
     clientId?: string;
     alreadyPaidCount?: number;
+    frequency?: PaymentFrequency;
+    paymentWeekday?: number;
+    firstDueDate?: string;
   }) => void;
   clientToEdit?: ClientWithLoanDetails | null;
   isEmbeddedInTab?: boolean;
@@ -66,6 +79,39 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     return baseToday;
   });
 
+  const [frequency, setFrequency] = useState<PaymentFrequency>(() => {
+    if (clientToEdit && clientToEdit.activeLoan) {
+      return getLoanFrequency(clientToEdit.activeLoan);
+    }
+    return "daily";
+  });
+  const [paymentWeekday, setPaymentWeekday] = useState<number>(() => {
+    if (clientToEdit && clientToEdit.activeLoan && clientToEdit.activeLoan.paymentWeekday !== undefined) {
+      return clientToEdit.activeLoan.paymentWeekday;
+    }
+    return 5; // Sexta-feira padrão para semanal
+  });
+  const [useFixedWeekdayForBiweekly, setUseFixedWeekdayForBiweekly] = useState<boolean>(() => {
+    return Boolean(
+      clientToEdit?.activeLoan?.frequency === "biweekly" &&
+      clientToEdit?.activeLoan?.paymentWeekday !== undefined
+    );
+  });
+  const [firstDueDate, setFirstDueDate] = useState<string>(() => {
+    if (!isCopyMode && clientToEdit && clientToEdit.activeLoan && clientToEdit.activeLoan.firstDueDate) {
+      return clientToEdit.activeLoan.firstDueDate;
+    }
+    const initFreq = clientToEdit?.activeLoan ? getLoanFrequency(clientToEdit.activeLoan) : "daily";
+    const initStart = isCopyMode
+      ? baseToday
+      : (clientToEdit?.activeLoan?.startDate || initialStartDate || baseToday);
+    const initWd = clientToEdit?.activeLoan?.paymentWeekday ?? 5;
+    return computeDefaultFirstDueDate(initStart, initFreq, true, initFreq === "weekly" ? initWd : undefined);
+  });
+  const [isFirstDueManuallyEdited, setIsFirstDueManuallyEdited] = useState<boolean>(() => {
+    return Boolean(!isCopyMode && clientToEdit?.activeLoan?.firstDueDate);
+  });
+
   const [alreadyPaidCount, setAlreadyPaidCount] = useState<number>(() => {
     if (clientToEdit && !isCopyMode) {
       return clientToEdit.paidCount;
@@ -73,17 +119,39 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     return 0;
   });
   const [simClosingDate, setSimClosingDate] = useState(() => baseToday);
-  const [simExcludeSundays, setSimExcludeSundays] = useState(true);
+  const [simExcludeSundays, setSimExcludeSundays] = useState(() => {
+    if (clientToEdit?.activeLoan) {
+      return clientToEdit.activeLoan.excludeSundays !== false;
+    }
+    return true;
+  });
 
   // Synchronize when simulationDate changes
   useEffect(() => {
     setSimClosingDate(simulationDate || getTodayStr());
   }, [simulationDate]);
 
-  const recalculateRetroStartDate = (count: number, closingDate: string, exclude: boolean) => {
+  // Keep default firstDueDate synced when startDate, frequency or weekday changes (unless manually edited)
+  useEffect(() => {
+    if (!isFirstDueManuallyEdited) {
+      const effectiveWd =
+        frequency === "weekly" || (frequency === "biweekly" && useFixedWeekdayForBiweekly)
+          ? paymentWeekday
+          : undefined;
+      setFirstDueDate(computeDefaultFirstDueDate(startDate, frequency, simExcludeSundays, effectiveWd));
+    }
+  }, [startDate, frequency, paymentWeekday, useFixedWeekdayForBiweekly, simExcludeSundays, isFirstDueManuallyEdited]);
+
+  const recalculateRetroStartDate = (
+    count: number,
+    closingDate: string,
+    exclude: boolean,
+    freq: PaymentFrequency = frequency,
+    wd?: number
+  ) => {
     const validCount = Math.max(0, count);
     if (validCount > 0) {
-      const calculated = addDays(getRetroactiveStartDate(closingDate, validCount, exclude), -1);
+      const calculated = getRetroactiveStartDateForFrequency(closingDate, validCount, freq, exclude, wd);
       setStartDate(calculated);
     } else {
       setStartDate(closingDate);
@@ -93,26 +161,52 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
   const handleAlreadyPaidCountChange = (count: number) => {
     const validCount = Math.max(0, count);
     setAlreadyPaidCount(validCount);
-    recalculateRetroStartDate(validCount, simClosingDate, simExcludeSundays);
+    const effectiveWd =
+      frequency === "weekly" || (frequency === "biweekly" && useFixedWeekdayForBiweekly)
+        ? paymentWeekday
+        : undefined;
+    setIsFirstDueManuallyEdited(false);
+    recalculateRetroStartDate(validCount, simClosingDate, simExcludeSundays, frequency, effectiveWd);
   };
 
   const handleSimClosingDateChange = (dateVal: string) => {
     setSimClosingDate(dateVal);
-    recalculateRetroStartDate(alreadyPaidCount, dateVal, simExcludeSundays);
+    const effectiveWd =
+      frequency === "weekly" || (frequency === "biweekly" && useFixedWeekdayForBiweekly)
+        ? paymentWeekday
+        : undefined;
+    setIsFirstDueManuallyEdited(false);
+    recalculateRetroStartDate(alreadyPaidCount, dateVal, simExcludeSundays, frequency, effectiveWd);
   };
 
   const handleStartDateChangeDirect = (newStart: string) => {
     setStartDate(newStart);
+    setIsFirstDueManuallyEdited(false);
     if (!clientToEdit || isCopyMode) {
-      // Calculate expected paid count between newStart and simClosingDate only for new/copied contracts
-      const elapsed = getElapsedDaysExcludingSundays(addDays(newStart, 1), simClosingDate, simExcludeSundays);
-      setAlreadyPaidCount(Math.max(0, Math.min(elapsed, Number(totalDays) || 0)));
+      if (frequency === "daily") {
+        const elapsed = getElapsedDaysExcludingSundays(addDays(newStart, 1), simClosingDate, simExcludeSundays);
+        setAlreadyPaidCount(Math.max(0, Math.min(elapsed, Number(totalDays) || 0)));
+      } else {
+        const effectiveWd =
+          frequency === "weekly" || (frequency === "biweekly" && useFixedWeekdayForBiweekly)
+            ? paymentWeekday
+            : undefined;
+        const sched = getLoanScheduledDates({
+          startDate: newStart,
+          totalDays: Number(totalDays) || 0,
+          excludeSundays: simExcludeSundays,
+          frequency,
+          paymentWeekday: effectiveWd
+        });
+        const dueCount = sched.filter(d => d <= simClosingDate).length;
+        setAlreadyPaidCount(Math.max(0, Math.min(dueCount, Number(totalDays) || 0)));
+      }
     }
   };
 
   const handleSimExcludeSundaysChange = (checked: boolean) => {
     setSimExcludeSundays(checked);
-    recalculateRetroStartDate(alreadyPaidCount, simClosingDate, checked);
+    recalculateRetroStartDate(alreadyPaidCount, simClosingDate, checked, frequency);
   };
 
   const [error, setError] = useState("");
@@ -188,10 +282,17 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
       
       if (clientLoans.length > 0) {
         const lastLoan = clientLoans[0];
+        const lastFreq = getLoanFrequency(lastLoan);
         setAmountInvested(lastLoan.amountInvested);
         setTotalDays(lastLoan.totalDays);
         setDailyRate(lastLoan.dailyRate);
         setSimExcludeSundays(lastLoan.excludeSundays !== false);
+        setFrequency(lastFreq);
+        if (lastLoan.paymentWeekday !== undefined) {
+          setPaymentWeekday(lastLoan.paymentWeekday);
+          setUseFixedWeekdayForBiweekly(lastFreq === "biweekly");
+        }
+        setIsFirstDueManuallyEdited(false);
         
         // Recalculate interest rate
         const principal = lastLoan.amountInvested;
@@ -305,6 +406,52 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     setPhone(value);
   };
 
+  const handleFrequencyChange = (newFreq: PaymentFrequency) => {
+    setFrequency(newFreq);
+    setIsFirstDueManuallyEdited(false);
+
+    if (newFreq !== "daily") {
+      setIsCustomizingParams(true);
+    }
+
+    // Apply smart default installment count for new/copied contracts
+    if (!clientToEdit || isCopyMode) {
+      const defaultInstallments: Record<PaymentFrequency, number> = {
+        daily: 26,
+        weekly: 4,
+        biweekly: 2,
+        monthly: 3
+      };
+      const nextCount = defaultInstallments[newFreq];
+      setTotalDays(nextCount);
+      const principal = Number(amountInvested) || 0;
+      if (principal > 0) {
+        updateDailyRateFromInterest(principal, interestRate, nextCount);
+      }
+    }
+  };
+
+  const effectivePaymentWeekday =
+    frequency === "weekly" || (frequency === "biweekly" && useFixedWeekdayForBiweekly)
+      ? paymentWeekday
+      : undefined;
+
+  const previewSchedule = useMemo(() => {
+    const count = Math.min(6, Math.max(0, Number(totalDays) || 0));
+    if (!startDate || count === 0) return [];
+    return getLoanScheduledDates(
+      {
+        startDate,
+        totalDays: count,
+        excludeSundays: simExcludeSundays,
+        frequency,
+        paymentWeekday: effectivePaymentWeekday,
+        firstDueDate: frequency !== "daily" ? firstDueDate : undefined
+      },
+      count
+    );
+  }, [startDate, totalDays, simExcludeSundays, frequency, effectivePaymentWeekday, firstDueDate]);
+
   const handleSendSimulation = () => {
     const cleanPhone = phone.replace(/\D/g, "");
     const formattedPhone = cleanPhone ? `55${cleanPhone}` : "";
@@ -313,14 +460,32 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
     const rateVal = Number(dailyRate) || 0;
     const daysVal = Number(totalDays) || 0;
 
+    const unitText =
+      frequency === "weekly"
+        ? `parcelas semanais (toda ${WEEKDAY_NAMES_FULL[paymentWeekday]})`
+        : frequency === "biweekly"
+          ? "parcelas quinzenais"
+          : frequency === "monthly"
+            ? "parcelas mensais"
+            : "diárias";
+
+    const ruleNote =
+      frequency === "weekly"
+        ? `⚠️ *Pagamentos semanais toda ${WEEKDAY_NAMES_FULL[paymentWeekday]}.*`
+        : frequency === "biweekly"
+          ? "⚠️ *Pagamentos quinzenais.*"
+          : frequency === "monthly"
+            ? "⚠️ *Pagamentos mensais.*"
+            : "⚠️ *Pagamentos de segunda a sábado.*";
+
     const message = `Olá, essa é a simulação de seu valor solicitado.
 
 💵 *Valor solicitado:* R$ ${principalVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-🗓️ *Parcelas:* ${daysVal} diárias de R$ ${rateVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+🗓️ *Parcelas:* ${daysVal} ${unitText} de R$ ${rateVal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 
 *Está de acordo?* Envie seu documento com foto, selfie, comprovante de residência.
 
-⚠️ *Pagamentos de segunda a sábado.*
+${ruleNote}
 
 🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
 
@@ -359,13 +524,13 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
 
     const days = Number(totalDays);
     if (!days || days <= 0) {
-      setError("Insira a quantidade de dias válida.");
+      setError("Insira a quantidade de parcelas válida.");
       return;
     }
 
     const rate = Number(dailyRate);
     if (!rate || rate <= 0) {
-      setError("Insira o valor da diária válido.");
+      setError("Insira o valor da parcela válido.");
       return;
     }
 
@@ -381,7 +546,10 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
         clientId: selectedClientId || undefined,
         alreadyPaidCount: (clientToEdit && !isCopyMode)
           ? alreadyPaidCount
-          : (alreadyPaidCount > 0 ? alreadyPaidCount : undefined)
+          : (alreadyPaidCount > 0 ? alreadyPaidCount : undefined),
+        frequency,
+        paymentWeekday: effectivePaymentWeekday,
+        firstDueDate: frequency !== "daily" ? firstDueDate : undefined
       });
     } catch (err: any) {
       console.error("Erro ao registrar cliente/empréstimo:", err);
@@ -533,6 +701,136 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
           <div className="space-y-4">
             <span className="text-[10px] font-bold text-zinc-550 uppercase tracking-wider block">Parametrização do Contrato</span>
 
+            {/* SELETOR DE MODALIDADE DE COBRANÇA */}
+            <div className="space-y-2">
+              <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                <Repeat className="w-3.5 h-3.5 text-yellow-500" />
+                Modalidade de Pagamento
+              </label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(["daily", "weekly", "biweekly", "monthly"] as PaymentFrequency[]).map(freqOption => (
+                  <button
+                    key={freqOption}
+                    type="button"
+                    onClick={() => handleFrequencyChange(freqOption)}
+                    className={`py-2 px-2 rounded-xl text-[11px] font-extrabold border transition-all cursor-pointer ${
+                      frequency === freqOption
+                        ? "bg-yellow-500 text-zinc-950 border-yellow-500 shadow-md shadow-yellow-500/15"
+                        : "bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700"
+                    }`}
+                  >
+                    {FREQUENCY_LABELS[freqOption]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* SELETOR DE DIA DA SEMANA (SEMANAL OU QUINZENAL FIXA) */}
+            {(frequency === "weekly" || frequency === "biweekly") && (
+              <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-3 space-y-2.5 animate-fade-in">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-yellow-500">
+                    {frequency === "weekly" ? "Dia Fixo da Semana (Ex: Toda Sexta)" : "Regra da Quinzena"}
+                  </span>
+                  {frequency === "biweekly" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUseFixedWeekdayForBiweekly(prev => !prev);
+                        setIsFirstDueManuallyEdited(false);
+                      }}
+                      className={`text-[9px] px-2 py-0.5 rounded-lg border font-bold cursor-pointer transition-colors ${
+                        useFixedWeekdayForBiweekly
+                          ? "bg-yellow-500 text-zinc-950 border-yellow-500"
+                          : "bg-zinc-900 text-zinc-400 border-zinc-800"
+                      }`}
+                    >
+                      {useFixedWeekdayForBiweekly ? "Dia fixo (14d)" : "Corrida (15d)"}
+                    </button>
+                  )}
+                </div>
+
+                {(frequency === "weekly" || useFixedWeekdayForBiweekly) && (
+                  <div className="grid grid-cols-7 gap-1">
+                    {WEEKDAY_NAMES_SHORT.map((label, idx) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => {
+                          setPaymentWeekday(idx);
+                          setIsFirstDueManuallyEdited(false);
+                        }}
+                        className={`py-1.5 rounded-lg text-[10px] font-black border transition-all cursor-pointer ${
+                          paymentWeekday === idx
+                            ? "bg-amber-400 text-zinc-950 border-amber-400 shadow-sm"
+                            : "bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-white"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <div>
+                    <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">
+                      1ª Cobrança / Vencimento
+                    </label>
+                    <input
+                      type="date"
+                      value={firstDueDate}
+                      onChange={e => {
+                        setFirstDueDate(e.target.value);
+                        setIsFirstDueManuallyEdited(true);
+                      }}
+                      className="w-full bg-zinc-950/80 border border-zinc-800 focus:border-amber-400 focus:outline-none rounded-lg py-1.5 px-2.5 text-xs text-white font-mono font-bold cursor-pointer"
+                    />
+                  </div>
+                  <div className="flex flex-col justify-end">
+                    <div className="text-[10px] font-mono text-zinc-300 bg-zinc-950/60 border border-zinc-800/80 rounded-lg px-2.5 py-1.5">
+                      <span className="text-zinc-500 block text-[8px] uppercase font-bold">Regra Ativa</span>
+                      <strong className="text-yellow-500">
+                        {frequency === "weekly"
+                          ? `Toda ${WEEKDAY_NAMES_FULL[paymentWeekday]}`
+                          : useFixedWeekdayForBiweekly
+                            ? `${WEEKDAY_NAMES_FULL[paymentWeekday]} a cada 14 dias`
+                            : "A cada 15 dias corridos"}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DATA DA 1ª PARCELA PARA MENSAL */}
+            {frequency === "monthly" && (
+              <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-3 grid grid-cols-1 sm:grid-cols-2 gap-2.5 animate-fade-in">
+                <div>
+                  <label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">
+                    Data da 1ª Mensalidade
+                  </label>
+                  <input
+                    type="date"
+                    value={firstDueDate}
+                    onChange={e => {
+                      setFirstDueDate(e.target.value);
+                      setIsFirstDueManuallyEdited(true);
+                    }}
+                    className="w-full bg-zinc-950/80 border border-zinc-800 focus:border-amber-400 focus:outline-none rounded-lg py-1.5 px-2.5 text-xs text-white font-mono font-bold cursor-pointer"
+                  />
+                </div>
+                <div className="flex flex-col justify-end">
+                  <div className="text-[10px] font-mono text-zinc-300 bg-zinc-950/60 border border-zinc-800/80 rounded-lg px-2.5 py-1.5">
+                    <span className="text-zinc-500 block text-[8px] uppercase font-bold">Regra Ativa</span>
+                    <strong className="text-yellow-500">
+                      Todo mês no dia {firstDueDate ? firstDueDate.split("-")[2] : "--"}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               {/* Valor Emprestado (Investido) */}
               <div>
@@ -550,13 +848,22 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                 </div>
               </div>
 
-              {/* Valor da Diária */}
+              {/* Valor da Parcela */}
               <div>
-                <label className="text-[10px] text-zinc-400 font-medium block mb-1">Valor da Diária (R$)</label>
+                <label className="text-[10px] text-zinc-400 font-medium block mb-1">
+                  {frequency === "daily"
+                    ? "Valor da Diária (R$)"
+                    : frequency === "weekly"
+                      ? "Valor Semanal (R$)"
+                      : frequency === "biweekly"
+                        ? "Valor Quinzenal (R$)"
+                        : "Valor Mensal (R$)"}
+                </label>
                 <div className="relative">
                   <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
                   <input 
                     type="number"
+                    step="0.01"
                     placeholder="Ex: 50"
                     value={dailyRate}
                     onChange={e => handleDailyRateChange(e.target.value !== "" ? Number(e.target.value) : "")}
@@ -567,7 +874,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
               </div>
             </div>
                   {/* CUSTOMIZATION OF TERMS (TOGGLE PATTERN) */}
-            {(!isCustomizingParams && !clientToEdit) ? (
+            {(!isCustomizingParams && !clientToEdit && frequency === "daily") ? (
               <div className="bg-zinc-950/40 border border-zinc-850 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 select-none">
                 <div className="space-y-0.5">
                   <span className="text-[10px] text-zinc-550 font-bold uppercase tracking-wider block">Parâmetros Ativos de Liberação</span>
@@ -587,7 +894,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
               <div className="space-y-4 p-4 border border-zinc-800/80 bg-zinc-950/20 rounded-2xl animate-fade-in relative">
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Ajustes do Contrato</span>
-                  {!clientToEdit && (
+                  {!clientToEdit && frequency === "daily" && (
                     <button
                       type="button"
                       onClick={() => {
@@ -657,15 +964,23 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                   {/* Dynamic formula calculation preview */}
                   {Number(amountInvested) > 0 && (
                     <div className="text-[10px] text-zinc-400 font-mono bg-zinc-900/40 p-2.5 rounded-xl border border-zinc-800/40 leading-relaxed">
-                      <span className="text-amber-400 font-bold">Cálculo:</span> R$ {Number(amountInvested).toLocaleString("pt-BR")} + {interestRate}% = <strong className="text-zinc-200">R$ {((Number(amountInvested) || 0) * (1 + interestRate / 100)).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</strong> dividido por <strong className="text-zinc-200">{totalDays} dias</strong> ➔ <strong className="text-amber-400">R$ {dailyRate || "0"} / dia</strong>
+                      <span className="text-amber-400 font-bold">Cálculo:</span> R$ {Number(amountInvested).toLocaleString("pt-BR")} + {interestRate}% = <strong className="text-zinc-200">R$ {((Number(amountInvested) || 0) * (1 + interestRate / 100)).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</strong> dividido por <strong className="text-zinc-200">{totalDays} {FREQUENCY_UNIT_PLURAL[frequency]}</strong> ➔ <strong className="text-amber-400">R$ {dailyRate || "0"} / parcela</strong>
                     </div>
                   )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 pt-1">
-                  {/* Tempo do Empréstimo (Dias) */}
+                  {/* Quantidade de Parcelas */}
                   <div>
-                    <label className="text-[10px] text-zinc-400 font-medium block mb-1">Tempo de Prazo (Dias)</label>
+                    <label className="text-[10px] text-zinc-400 font-medium block mb-1">
+                      {frequency === "daily"
+                        ? "Tempo de Prazo (Dias)"
+                        : frequency === "weekly"
+                          ? "Qtd. de Semanas"
+                          : frequency === "biweekly"
+                            ? "Qtd. de Quinzenas"
+                            : "Qtd. de Meses"}
+                    </label>
                     <input 
                       type="number"
                       min="1"
@@ -682,7 +997,7 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                       }}
                       onBlur={() => {
                         if (totalDays === "" || Number(totalDays) < 1) {
-                          handleDaysChange(26);
+                          handleDaysChange(frequency === "daily" ? 26 : frequency === "weekly" ? 4 : frequency === "biweekly" ? 2 : 3);
                         }
                       }}
                       className="w-full bg-zinc-950/60 border border-zinc-855 focus:border-amber-400 focus:outline-none rounded-xl py-2 px-3 text-sm text-zinc-100 transition-colors font-mono font-bold h-[42px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -703,26 +1018,59 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
                   </div>
                 </div>
 
-                {/* Quick Days Shortcuts */}
+                {/* Quick Installment Count Shortcuts */}
                 <div className="space-y-1.5 pt-1">
-                  <span className="text-[9px] text-zinc-405 font-bold block uppercase tracking-widest">Prazos de Contrato Padrões (Ditáveis):</span>
+                  <span className="text-[9px] text-zinc-405 font-bold block uppercase tracking-widest">
+                    Prazos Padrões ({FREQUENCY_LABELS[frequency]}):
+                  </span>
                   <div className="grid grid-cols-5 gap-1.5">
-                    {[26, 31, 62, 93, 124].map(day => (
+                    {(frequency === "daily"
+                      ? [26, 31, 62, 93, 124]
+                      : frequency === "weekly"
+                        ? [4, 6, 8, 10, 12]
+                        : frequency === "biweekly"
+                          ? [2, 4, 6, 8, 12]
+                          : [1, 2, 3, 6, 12]
+                    ).map(count => (
                       <button
-                        key={day}
+                        key={count}
                         type="button"
-                        onClick={() => handleDaysChange(day)}
+                        onClick={() => handleDaysChange(count)}
                         className={`text-center py-2 text-[11px] font-mono font-extrabold rounded-lg transition-all border cursor-pointer ${
-                          totalDays === day
+                          totalDays === count
                             ? "bg-yellow-500 border-yellow-500 text-zinc-950 font-black shadow-md shadow-yellow-500/10"
                             : "bg-zinc-900/60 border-zinc-800 text-zinc-405 hover:text-zinc-205 hover:border-zinc-700"
                         }`}
                       >
-                        {day}d {day === 26 ? "★" : ""}
+                        {count}{frequency === "daily" ? "d" : "x"}
                       </button>
                     ))}
                   </div>
                 </div>
+
+                {/* Preview das próximas datas de vencimento */}
+                {previewSchedule.length > 0 && (
+                  <div className="bg-zinc-900/50 border border-zinc-800/80 rounded-xl p-2.5 space-y-1">
+                    <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block">
+                      Prévia das Próximas Parcelas ({FREQUENCY_LABELS[frequency]}):
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {previewSchedule.map((dateStr, idx) => (
+                        <span
+                          key={`${dateStr}-${idx}`}
+                          className="text-[10px] font-mono bg-zinc-950 border border-zinc-800 px-2 py-0.5 rounded text-zinc-200"
+                        >
+                          <strong className="text-yellow-500">{idx + 1}ª</strong> {formatDayMonth(dateStr)}
+                        </span>
+                      ))}
+                      {Number(totalDays) > previewSchedule.length && (
+                        <span className="text-[10px] font-mono text-zinc-500 self-center">
+                          +{Number(totalDays) - previewSchedule.length} mais
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

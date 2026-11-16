@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { X, Send, Search, CheckCircle2, AlertTriangle, Clock, ShieldCheck } from "lucide-react";
 import { ClientWithLoanDetails } from "../types";
 import { formatFriendlyDate } from "../utils/dateUtils";
+import { FREQUENCY_UNIT_SINGULAR, getLoanFrequency, getLoanFrequencyBadge } from "../utils/loanSchedule";
 
 interface QuickCollectModalProps {
   isOpen: boolean;
@@ -51,8 +52,9 @@ export const QuickCollectModal: React.FC<QuickCollectModalProps> = ({
       ? "⚠️ Você precisa acertar a parcela pendente para mantermos o seu cadastro atualizado."
       : "🎉 PARABENS, VOCE ESTA EM DIA ACERTE A DE HOJE E MANTENHA SEU SCORE ALTO.";
 
+    const freq = getLoanFrequency(activeLoan);
     const messageTemplate = `Olá *${client.name}*, tudo bem?
-Passando para lembrar da sua parcela diária no valor de *R$ ${activeLoan.dailyRate.toFixed(2)}*.
+Passando para lembrar da sua parcela ${FREQUENCY_UNIT_SINGULAR[freq]} no valor de *R$ ${activeLoan.dailyRate.toFixed(2)}*.
 
 📊 *Seu Resumo:*
 Progresso: *${paidCount} de ${totalDays} pagas*
@@ -99,7 +101,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
               ⚡ Cobrança Rápida em Lote
             </h3>
             <p className="text-[11px] text-zinc-500 leading-relaxed">
-              Dispare lembretes de diárias para WhatsApp com apenas um clique.
+              Dispare lembretes de parcelas (diárias, semanais, quinzenais e mensais) para WhatsApp com um clique.
             </p>
           </div>
           <button
@@ -171,6 +173,11 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-bold text-xs text-white truncate max-w-[150px] sm:max-w-xs">{c.client.name}</span>
+                      {c.activeLoan && (
+                        <span className="px-1.5 py-0.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 rounded text-[9px] font-bold font-mono">
+                          {getLoanFrequencyBadge(c.activeLoan)}
+                        </span>
+                      )}
                       {c.isDelayed ? (
                         <span className="p-0.5 px-1.5 bg-amber-500/10 text-amber-500 rounded text-[9px] font-extrabold font-mono flex items-center gap-0.5">
                           <AlertTriangle className="w-2.5 h-2.5 text-amber-500" />
@@ -185,7 +192,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, não crie dificuldade para pega
                     </div>
                     <div className="text-[10px] font-mono text-zinc-450 mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
                       <span>Progresso: <strong className="text-zinc-200">{c.paidCount} de {c.totalDays}</strong></span>
-                      <span>Diária: <strong className="text-yellow-500">{formatBRL(c.activeLoan?.dailyRate ?? 0)}</strong></span>
+                      <span>Parcela: <strong className="text-yellow-500">{formatBRL(c.activeLoan?.dailyRate ?? 0)}</strong></span>
                     </div>
                   </div>
 

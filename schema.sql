@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.clients (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     phone TEXT,
+    archived BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -23,6 +24,10 @@ CREATE TABLE IF NOT EXISTS public.loans (
     total_days INTEGER NOT NULL,
     start_date TEXT NOT NULL,
     exclude_sundays BOOLEAN DEFAULT true,
+    status TEXT DEFAULT 'active',
+    frequency TEXT DEFAULT 'daily',
+    payment_weekday INTEGER,
+    first_due_date TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

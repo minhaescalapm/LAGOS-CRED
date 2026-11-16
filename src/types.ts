@@ -1,3 +1,5 @@
+export type PaymentFrequency = "daily" | "weekly" | "biweekly" | "monthly";
+
 export interface Client {
   id: string;
   name: string;
@@ -10,19 +12,22 @@ export interface Loan {
   clientId: string;
   amountInvested: number; // Valor principal emprestado
   totalAmount: number; // Valor total a receber (amountInvested + juros, i.e., dailyRate * totalDays)
-  dailyRate: number; // Valor da diária
-  totalDays: number; // Tempo do empréstimo em dias
+  dailyRate: number; // Valor da parcela (diária, semanal, quinzenal ou mensal)
+  totalDays: number; // Quantidade total de parcelas (dias, semanas, quinzenas ou meses)
   startDate: string; // Data inicial YYYY-MM-DD
-  excludeSundays?: boolean; // Se ignora os domingos no ciclo financeiro
+  excludeSundays?: boolean; // Se ignora os domingos no ciclo diário
   status?: string; // Status do contrato, e.g., 'active' ou 'completed'
+  frequency?: PaymentFrequency; // Modalidade de pagamento (padrão: 'daily')
+  paymentWeekday?: number; // Dia fixo da semana (0=Dom..6=Sáb), usado em cobranças semanais/quinzenais
+  firstDueDate?: string; // Data da 1ª parcela YYYY-MM-DD (opcional)
 }
 
 export interface Payment {
   id: string;
   loanId: string;
   paymentDate: string; // Data real que o dinheiro caiu (YYYY-MM-DD)
-  referenceDate: string; // Data de referência da parcela coberta (+1 dia por pagamento) (YYYY-MM-DD)
-  amount: number; // Valor pago (geralmente igual à dailyRate, ou múltiplo)
+  referenceDate: string; // Data de referência da parcela coberta (YYYY-MM-DD)
+  amount: number; // Valor pago
 }
 
 // Full view model for client with active loans
@@ -31,10 +36,11 @@ export interface ClientWithLoanDetails {
   activeLoan: Loan | null;
   payments: Payment[];
   paidCount: number; // Quantas parcelas pagas
-  totalDays: number; // Dias totais do empréstimo
+  totalDays: number; // Quantidade total de parcelas do contrato
   referenceDate: string; // Data da última atualização / cobertura (YYYY-MM-DD)
+  nextDueDate?: string; // Data prevista da próxima parcela em aberto (YYYY-MM-DD)
   isDelayed: boolean; // Se o cliente está em atraso
-  daysBehind: number; // Quantidade de diárias em atraso
+  daysBehind: number; // Quantidade de parcelas em atraso
   chargeCountToday?: number; // Quantidade de vezes que o cliente foi cobrado hoje
 }
 

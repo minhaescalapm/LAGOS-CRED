@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { ClientWithLoanDetails, Loan, Payment } from "../types";
-import { Trash2, ArrowLeft, Search, Calendar, User, TrendingUp, AlertTriangle, CheckCircle, Info, Coins, ArrowUpRight, PiggyBank } from "lucide-react";
+import { ClientWithLoanDetails, Loan } from "../types";
+import { Trash2, ArrowLeft, Search, Calendar, TrendingUp, AlertTriangle, Info, Coins, ArrowUpRight, PiggyBank } from "lucide-react";
+import { FREQUENCY_UNIT_PLURAL, getLoanFrequency, getLoanFrequencyBadge, getMonthlyBillingMultiplier } from "../utils/loanSchedule";
 
 interface InvestmentsDetailsProps {
   clientsWithLoans: ClientWithLoanDetails[];
@@ -79,8 +80,8 @@ export function InvestmentsDetails({ clientsWithLoans, allLoans, onDeleteLoan, o
   const monthlyProfitEstimate = activeLoans.reduce((sum, l) => {
     if (l.totalDays <= 0) return sum;
     const totalReturn = l.totalAmount || (l.dailyRate * l.totalDays);
-    const profitPerDay = (totalReturn - l.amountInvested) / l.totalDays;
-    return sum + (profitPerDay * 30);
+    const profitPerInstallment = (totalReturn - l.amountInvested) / l.totalDays;
+    return sum + (profitPerInstallment * getMonthlyBillingMultiplier(l));
   }, 0);
 
   return (
@@ -225,13 +226,16 @@ export function InvestmentsDetails({ clientsWithLoans, allLoans, onDeleteLoan, o
                     >
                       {/* Loan Meta */}
                       <div className="flex justify-between items-start gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${
                             isCompleted 
                               ? "bg-zinc-850 text-zinc-500" 
                               : "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20"
                           }`}>
                             {isCompleted ? "Finalizado" : "Ativo"}
+                          </span>
+                          <span className="px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                            {getLoanFrequencyBadge(loan)}
                           </span>
                           <span className="text-[10px] text-zinc-500 flex items-center gap-1 font-mono">
                             <Calendar className="w-3 h-3" />
@@ -280,12 +284,15 @@ export function InvestmentsDetails({ clientsWithLoans, allLoans, onDeleteLoan, o
                           <span className="font-extrabold text-zinc-200">{formatBRL(totalExpected)}</span>
                         </div>
                         <div>
-                          <span className="text-[9px] text-zinc-500 block uppercase font-bold tracking-wider">Taxa Diária</span>
+                          <span className="text-[9px] text-zinc-500 block uppercase font-bold tracking-wider">Valor Parcela</span>
                           <span className="font-semibold">{formatBRL(loan.dailyRate)}</span>
                         </div>
                         <div>
                           <span className="text-[9px] text-zinc-500 block uppercase font-bold tracking-wider">Parcelas</span>
-                          <span className="font-semibold">{loan.totalDays} dias {loan.excludeSundays !== false ? "(sem domingos)" : ""}</span>
+                          <span className="font-semibold">
+                            {loan.totalDays} {FREQUENCY_UNIT_PLURAL[getLoanFrequency(loan)]}
+                            {getLoanFrequency(loan) === "daily" && loan.excludeSundays !== false ? " (sem domingos)" : ""}
+                          </span>
                         </div>
                       </div>
                     </div>

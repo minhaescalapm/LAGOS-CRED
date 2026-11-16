@@ -5,10 +5,9 @@ import {
   parseLocalDate, 
   formatLocalDate, 
   formatFriendlyDate, 
-  isSunday, 
-  addDays, 
-  getTodayStr 
+  isSunday
 } from "../utils/dateUtils";
+import { getLoanFrequencyBadge, getLoanScheduledDates } from "../utils/loanSchedule";
 import { 
   CalendarDays, 
   ChevronLeft, 
@@ -64,23 +63,9 @@ export const SmartAgenda: React.FC<SmartAgendaProps> = ({
         loan.status === "completed"
           ? allPayments.filter(p => p.loanId === loan.id).length
           : loan.totalDays;
-      const dates: string[] = [];
-      let current = addDays(loan.startDate, 1);
-      const isExcluding = loan.excludeSundays !== false;
-      let added = 0;
-      // Safeguard against infinite loops
-      let iterations = 0;
-      while (added < targetDays && iterations < 1000) {
-        iterations++;
-        if (!isExcluding || !isSunday(current)) {
-          dates.push(current);
-          added++;
-        }
-        current = addDays(current, 1);
-      }
       return {
         loan,
-        scheduledDates: dates
+        scheduledDates: getLoanScheduledDates(loan, targetDays)
       };
     });
   }, [allLoans, allPayments]);
@@ -499,7 +484,7 @@ Por gentileza, realize o envio no PIX lagoscelular5@gmail.com e nos envie o comp
           </div>
 
           <p className="text-[9px] text-zinc-550 leading-relaxed font-mono flex items-center gap-1.5 justify-center">
-            <span>🔴 Diária com contrato iniciando</span>
+            <span>🟡 Dia com contrato iniciando</span>
             <span>•</span>
             <span className="text-amber-500/90">Amarelo: Valores Previstos</span>
             <span>•</span>
@@ -534,7 +519,7 @@ Por gentileza, realize o envio no PIX lagoscelular5@gmail.com e nos envie o comp
               {/* STATS BREAKDOWN */}
               <div className="grid grid-cols-2 gap-2 text-center py-2.5 bg-zinc-950/30 font-mono rounded-xl border border-zinc-900">
                 <div>
-                  <span className="text-[8px] text-zinc-550 font-sans block uppercase font-bold tracking-wider">A Receber Diárias</span>
+                  <span className="text-[8px] text-zinc-550 font-sans block uppercase font-bold tracking-wider">A Receber no Dia</span>
                   <span className="text-xs sm:text-sm font-bold text-amber-500 mt-0.5 block">
                     {formatBRL(selectedDayDetails.stats.expectedAmount)}
                   </span>
@@ -564,8 +549,11 @@ Por gentileza, realize o envio no PIX lagoscelular5@gmail.com e nos envie o comp
                       {selectedDayDetails.starts.map(({ loan, client }, i) => (
                         <div key={i} className="p-3 bg-yellow-500/5 border border-yellow-500/20 rounded-xl flex items-center justify-between text-xs font-mono">
                           <div>
-                            <span className="text-zinc-200 font-bold block truncate max-w-[150px]">{client.name}</span>
-                            <span className="text-[9px] text-zinc-400">Emprestando {formatBRL(loan.amountInvested)} @ diária R$ {loan.dailyRate}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-zinc-200 font-bold block truncate max-w-[150px]">{client.name}</span>
+                              <span className="text-[8px] px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 text-yellow-400 rounded font-bold">{getLoanFrequencyBadge(loan)}</span>
+                            </div>
+                            <span className="text-[9px] text-zinc-400">Emprestando {formatBRL(loan.amountInvested)} @ parcela R$ {loan.dailyRate}</span>
                           </div>
                           <span className="p-0.5 px-2 bg-yellow-500/20 text-yellow-500 text-[8px] uppercase font-black tracking-wider rounded-lg">Novo</span>
                         </div>
@@ -576,11 +564,11 @@ Por gentileza, realize o envio no PIX lagoscelular5@gmail.com e nos envie o comp
 
                 {/* 2. SCHEDULED REPAYMENTS DUE */}
                 <div className="space-y-1.5">
-                  <span className="text-[9px] uppercase font-bold tracking-widest text-zinc-500 block font-mono">Cobranças Agendadas / Diárias do Dia</span>
+                  <span className="text-[9px] uppercase font-bold tracking-widest text-zinc-500 block font-mono">Cobranças Agendadas do Dia</span>
                   
                   {selectedDayDetails.collections.length === 0 ? (
                     <div className="py-8 text-center bg-zinc-950/20 border border-dashed border-zinc-850 rounded-xl text-zinc-550 text-[10px]">
-                      Nenhuma cobrança de diária prevista para este dia.
+                      Nenhuma cobrança prevista para este dia.
                     </div>
                   ) : (
                     <div className="space-y-1.5">
@@ -594,9 +582,14 @@ Por gentileza, realize o envio no PIX lagoscelular5@gmail.com e nos envie o comp
                           }`}
                         >
                           <div className="min-w-0 flex-1">
-                            <span className="text-zinc-200 font-extrabold truncate block">{col.client.name}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-zinc-200 font-extrabold truncate">{col.client.name}</span>
+                              <span className="text-[8px] px-1.5 py-0.5 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded font-bold shrink-0">
+                                {getLoanFrequencyBadge(col.loan)}
+                              </span>
+                            </div>
                             <div className="flex items-center gap-2 text-[9px] text-zinc-450 mt-0.5">
-                              <span>Parcela diária: <strong className="text-yellow-500">{formatBRL(col.loan.dailyRate)}</strong></span>
+                              <span>Parcela: <strong className="text-yellow-500">{formatBRL(col.loan.dailyRate)}</strong></span>
                               <span>•</span>
                               <span>Progresso: {col.paidCount}/{col.totalDays}</span>
                             </div>
