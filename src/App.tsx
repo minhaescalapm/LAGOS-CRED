@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { dbService } from "./services/dbService";
+import React, { useState, useEffect, useRef } from "react";
+import { dbService, buildClientLoanDetail, deduplicateAndSortPayments } from "./services/dbService";
 import { ClientWithLoanDetails, FinancialStats, Loan, Payment } from "./types";
 import { getTodayStr, formatFriendlyDate } from "./utils/dateUtils";
 import { FinancialSummary } from "./components/FinancialSummary";
@@ -14,6 +14,7 @@ import { QuickCollectModal } from "./components/QuickCollectModal";
 import { SmartAgenda } from "./components/SmartAgenda";
 import { LoginScreen } from "./components/LoginScreen";
 import { InvestmentsDetails } from "./components/InvestmentsDetails";
+import { DailyCollectionPanel } from "./components/DailyCollectionPanel";
 import { 
   Plus, 
   Search, 
@@ -45,6 +46,7 @@ export default function App() {
   const [clientsWithLoans, setClientsWithLoans] = useState<ClientWithLoanDetails[]>([]);
   const [stats, setStats] = useState<FinancialStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const refreshSequenceRef = useRef(0);
 
   // Filter & Search states
   const [activeTab, setActiveTab] = useState<"home" | "collections" | "financial_control" | "agenda" | "investimentos">("home");
@@ -90,18 +92,19 @@ export default function App() {
 
   // Sync state from LocalStorage or Supabase on mount and state changes
   const refreshData = async () => {
+    const requestId = ++refreshSequenceRef.current;
     setIsLoading(true);
     try {
-      const [list, financialStats, fetchedLoans, fetchedPayments] = await Promise.all([
-        dbService.getClientDetailsList(simulationDate),
-        dbService.getFinancialStats(simulationDate),
-        dbService.getLoans ? dbService.getLoans() : Promise.resolve([]),
-        dbService.getPayments ? dbService.getPayments() : Promise.resolve([])
-      ]);
+      const snapshot = await dbService.getDashboardSnapshot(simulationDate);
 
-      const activeClientIds = list.map(item => item.client.id);
-      const filteredLoans = (fetchedLoans as Loan[]).filter(l => activeClientIds.includes(l.clientId));
-      
+      // Discard stale responses if a newer refresh or mutation started after this request
+      if (requestId !== refreshSequenceRef.current) {
+        return;
+      }
+
+      const activeClientIds = new Set(snapshot.clientsWithLoans.map(item => item.client.id));
+      const filteredLoans = snapshot.loans.filter(l => activeClientIds.has(l.clientId));
+
       // Deduplicate loans by id
       const seenLoanIds = new Set<string>();
       const deduplicatedLoans = filteredLoans.filter(l => {
@@ -110,20 +113,14 @@ export default function App() {
         return true;
       });
 
-      const filteredLoansIds = deduplicatedLoans.map(l => l.id);
-      const filteredPayments = (fetchedPayments as Payment[]).filter(p => filteredLoansIds.includes(p.loanId));
-
-      // Deduplicate payments by id
-      const seenPaymentIds = new Set<string>();
-      const deduplicatedPayments = filteredPayments.filter(p => {
-        if (seenPaymentIds.has(p.id)) return false;
-        seenPaymentIds.add(p.id);
-        return true;
-      });
+      const filteredLoansIds = new Set(deduplicatedLoans.map(l => l.id));
+      const deduplicatedPayments = deduplicateAndSortPayments(
+        snapshot.payments.filter(p => filteredLoansIds.has(p.loanId))
+      );
 
       // Deduplicate list details to avoid duplicate client/loan pairings or keys
       const seenDetailsKeys = new Set<string>();
-      const deduplicatedList = list.filter(item => {
+      const deduplicatedList = snapshot.clientsWithLoans.filter(item => {
         const key = item.activeLoan ? `loan-${item.activeLoan.id}` : `client-${item.client.id}`;
         if (seenDetailsKeys.has(key)) return false;
         seenDetailsKeys.add(key);
@@ -131,13 +128,15 @@ export default function App() {
       });
 
       setClientsWithLoans(deduplicatedList);
-      setStats(financialStats);
+      setStats(snapshot.stats);
       setAllLoans(deduplicatedLoans);
       setAllPayments(deduplicatedPayments);
     } catch (err) {
       console.error("Erro ao carregar dados financeiros:", err);
     } finally {
-      setIsLoading(false);
+      if (requestId === refreshSequenceRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -177,9 +176,9 @@ export default function App() {
       );
 
       // Se houver parcelas já pagas informadas no simulador, nós as registramos de forma sequencial retroativa
+      // usando a data de referência de cada parcela como data de pagamento para não inflar o caixa do dia de hoje
       if (data.alreadyPaidCount && data.alreadyPaidCount > 0) {
-        // Registra os pagamentos como realizados até a data de simulação / hoje
-        await dbService.registerPayment(newLoan.id, data.alreadyPaidCount, simulationDate);
+        await dbService.registerPayment(newLoan.id, data.alreadyPaidCount, simulationDate, undefined, true);
       }
 
       setShowAddModal(false);
@@ -217,10 +216,14 @@ export default function App() {
           data.startDate
         );
 
-        if (data.alreadyPaidCount !== undefined) {
+        const paidCountChanged = data.alreadyPaidCount !== undefined && data.alreadyPaidCount !== editingClient.paidCount;
+        const startDateChanged = data.startDate !== editingClient.activeLoan.startDate;
+        const dailyRateChanged = data.dailyRate !== editingClient.activeLoan.dailyRate;
+
+        if (paidCountChanged || startDateChanged || dailyRateChanged) {
           await dbService.adjustLoanPaymentsAndStartDate(
             editingClient.activeLoan.id,
-            data.alreadyPaidCount,
+            data.alreadyPaidCount !== undefined ? data.alreadyPaidCount : editingClient.paidCount,
             data.startDate
           );
         }
@@ -234,7 +237,7 @@ export default function App() {
         );
 
         if (data.alreadyPaidCount && data.alreadyPaidCount > 0) {
-          await dbService.registerPayment(newLoan.id, data.alreadyPaidCount, simulationDate);
+          await dbService.registerPayment(newLoan.id, data.alreadyPaidCount, simulationDate, undefined, true);
         }
       }
       setEditingClient(null);
@@ -311,14 +314,43 @@ export default function App() {
     }
   };
 
-  // Handle register payment (+1 logic)
+  // Handle register payment (+1 logic) with immediate immutable state update & atomic refresh
   const handleRegisterPayment = async (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => {
+    // Invalidate any earlier in-flight refreshData so an older snapshot cannot overwrite this payment
+    refreshSequenceRef.current += 1;
     setIsLoading(true);
     try {
-      await dbService.registerPayment(loanId, count, dateStr, customReferenceDate);
+      const persistedPayments = await dbService.registerPayment(loanId, count, dateStr, customReferenceDate);
+
+      if (persistedPayments.length > 0) {
+        setAllPayments(prevPayments =>
+          deduplicateAndSortPayments([...prevPayments, ...persistedPayments])
+        );
+
+        setClientsWithLoans(prevList =>
+          prevList.map(item => {
+            if (!item.activeLoan || item.activeLoan.id !== loanId) {
+              return item;
+            }
+            const mergedPayments = deduplicateAndSortPayments([
+              ...item.payments,
+              ...persistedPayments
+            ]);
+            return buildClientLoanDetail(
+              item.client,
+              item.activeLoan,
+              mergedPayments,
+              simulationDate,
+              item.chargeCountToday ?? 0
+            );
+          })
+        );
+      }
+
       await refreshData();
     } catch (err: any) {
       alert(err.message || "Erro ao registrar o pagamento.");
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -328,8 +360,14 @@ export default function App() {
   const handleIncrementCharge = async (clientId: string) => {
     try {
       const activeDate = simulationDate || getTodayStr();
-      await dbService.incrementChargeCount(clientId, activeDate);
-      await refreshData();
+      const newCount = await dbService.incrementChargeCount(clientId, activeDate);
+      setClientsWithLoans(prevList =>
+        prevList.map(item =>
+          item.client.id === clientId
+            ? { ...item, chargeCountToday: newCount }
+            : item
+        )
+      );
     } catch (err: any) {
       console.error("Erro ao registrar cobrança:", err);
     }
@@ -580,6 +618,18 @@ export default function App() {
 
       {/* 2. MAIN WORKSPACE SCROLLSTAGE */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+
+        {/* PAINEL DE RECEBIMENTOS DO DIA (LOGO ABAIXO DO CABEÇALHO LAGOS CREDIT) */}
+        <DailyCollectionPanel
+          clientsWithLoans={clientsWithLoans}
+          allLoans={allLoans}
+          allPayments={allPayments}
+          targetDate={simulationDate}
+          onMarkPaidToday={async (loanId) => {
+            await handleRegisterPayment(loanId, 1, simulationDate);
+          }}
+          isLoading={isLoading}
+        />
         
         {/* DYNAMIC CLOUD DATABASE SYNC WARNING / HEALTH STATUS */}
         <div className="bg-zinc-950/45 border border-zinc-850 p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs text-zinc-400 select-none shadow-md">

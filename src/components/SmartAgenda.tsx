@@ -60,13 +60,17 @@ export const SmartAgenda: React.FC<SmartAgendaProps> = ({
   // 2. Pre-calculate all expected payment dates for each loan
   const loanSchedules = useMemo(() => {
     return allLoans.map(loan => {
+      const targetDays =
+        loan.status === "completed"
+          ? allPayments.filter(p => p.loanId === loan.id).length
+          : loan.totalDays;
       const dates: string[] = [];
       let current = addDays(loan.startDate, 1);
       const isExcluding = loan.excludeSundays !== false;
       let added = 0;
       // Safeguard against infinite loops
       let iterations = 0;
-      while (added < loan.totalDays && iterations < 1000) {
+      while (added < targetDays && iterations < 1000) {
         iterations++;
         if (!isExcluding || !isSunday(current)) {
           dates.push(current);
@@ -79,7 +83,7 @@ export const SmartAgenda: React.FC<SmartAgendaProps> = ({
         scheduledDates: dates
       };
     });
-  }, [allLoans]);
+  }, [allLoans, allPayments]);
 
   // 3. Month & Year Details
   const monthNames = [

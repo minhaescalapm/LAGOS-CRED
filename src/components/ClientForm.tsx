@@ -103,9 +103,11 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
 
   const handleStartDateChangeDirect = (newStart: string) => {
     setStartDate(newStart);
-    // Calculate expected paid count between newStart and simClosingDate
-    const elapsed = getElapsedDaysExcludingSundays(addDays(newStart, 1), simClosingDate, simExcludeSundays);
-    setAlreadyPaidCount(Math.max(0, Math.min(elapsed, totalDays)));
+    if (!clientToEdit || isCopyMode) {
+      // Calculate expected paid count between newStart and simClosingDate only for new/copied contracts
+      const elapsed = getElapsedDaysExcludingSundays(addDays(newStart, 1), simClosingDate, simExcludeSundays);
+      setAlreadyPaidCount(Math.max(0, Math.min(elapsed, Number(totalDays) || 0)));
+    }
   };
 
   const handleSimExcludeSundaysChange = (checked: boolean) => {
@@ -377,7 +379,9 @@ export function ClientForm({ onClose, onSubmit, clientToEdit, isEmbeddedInTab, i
         dailyRate: rate,
         startDate,
         clientId: selectedClientId || undefined,
-        alreadyPaidCount: alreadyPaidCount > 0 ? alreadyPaidCount : undefined
+        alreadyPaidCount: (clientToEdit && !isCopyMode)
+          ? alreadyPaidCount
+          : (alreadyPaidCount > 0 ? alreadyPaidCount : undefined)
       });
     } catch (err: any) {
       console.error("Erro ao registrar cliente/empréstimo:", err);

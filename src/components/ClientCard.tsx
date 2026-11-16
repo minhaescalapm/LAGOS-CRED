@@ -20,7 +20,7 @@ import { formatFriendlyDate, formatDayMonthAbbr, addDays, getTodayStr, getRetroa
 
 interface ClientCardProps {
   clientDetail: ClientWithLoanDetails;
-  onRegisterPayment: (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => void;
+  onRegisterPayment: (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => Promise<void>;
   onOpenPixModal: (clientName: string) => void;
   onDeleteClient: (clientId: string, loanId?: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
@@ -79,9 +79,10 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const isDelayed = activeLoan ? (daysBehind >= 1 && paidCount < totalDays) : false;
 
   const isTodayPending = activeLoan ? (paidCount < totalDays) && (referenceDate < baseToday) : false;
+  const hasPaidToday = activeLoan ? clientDetail.payments.some(p => p.paymentDate === baseToday) : false;
 
-  // Predict new reference date if we added payDaysCount days
-  const getPredictedRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
+  // Actual stored referenceDate for the next installment (NEVER shifts a valid Saturday onto Sunday)
+  const getNextInstallmentRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
     let currentRef = startRef || (activeLoan ? activeLoan.startDate : baseToday);
     for (let i = 0; i < count; i++) {
       currentRef = addDays(currentRef, 1);
@@ -89,7 +90,12 @@ export const ClientCard: React.FC<ClientCardProps> = ({
         currentRef = addDays(currentRef, 1);
       }
     }
-    // Nova regra: se o dia seguinte ao último pago for domingo e domingos são isentos, então o cliente está coberto até domingo!
+    return currentRef;
+  };
+
+  // Display coverage date (includes exempt Sunday right after Saturday)
+  const getPredictedRefDate = (startRef: string | null, count: number, excludeSundays: boolean) => {
+    let currentRef = getNextInstallmentRefDate(startRef, count, excludeSundays);
     if (excludeSundays) {
       const nextDay = addDays(currentRef, 1);
       if (isSunday(nextDay)) {
@@ -99,10 +105,19 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     return currentRef;
   };
 
+  const lastStoredRefDate = React.useMemo(() => {
+    if (clientDetail.payments.length > 0) {
+      const sorted = [...clientDetail.payments].sort((a, b) => a.referenceDate.localeCompare(b.referenceDate));
+      return sorted[sorted.length - 1].referenceDate;
+    }
+    return activeLoan ? activeLoan.startDate : baseToday;
+  }, [clientDetail.payments, activeLoan, baseToday]);
+
   const [isExpandingPay, setIsExpandingPay] = useState(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [payDaysCount, setPayDaysCount] = useState<number>(1);
   const [paymentDate, setPaymentDate] = useState(() => simulationDate || getTodayStr());
-  const [customRefDate, setCustomRefDate] = useState(() => getPredictedRefDate(referenceDate, 1, isExcludingSundays));
+  const [customRefDate, setCustomRefDate] = useState(() => getNextInstallmentRefDate(lastStoredRefDate, 1, isExcludingSundays));
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
   // States for Contract Adjustments
@@ -167,8 +182,8 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   }, [simulationDate]);
 
   React.useEffect(() => {
-    setCustomRefDate(getPredictedRefDate(referenceDate, 1, isExcludingSundays));
-  }, [referenceDate, isExcludingSundays]);
+    setCustomRefDate(getNextInstallmentRefDate(lastStoredRefDate, 1, isExcludingSundays));
+  }, [lastStoredRefDate, isExcludingSundays]);
 
   const handleAdjustmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -386,22 +401,46 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
 
   const predictedNewReferenceDate = getPredictedRefDate(customRefDate, payDaysCount - 1, isExcludingSundays);
 
-  // Trigger registration
-  const handlePaymentSubmit = (e: React.FormEvent) => {
+  // Trigger registration (with async lock to prevent duplicate/stale submits)
+  const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onRegisterPayment(activeLoan.id, payDaysCount, paymentDate, customRefDate);
-    
-    // Configure Whatsapp Receipt values
-    const finalRefDate = getPredictedRefDate(customRefDate, payDaysCount - 1, isExcludingSundays);
-    setLastReceiptDetails({
-      x: paidCount + payDaysCount,
-      y: totalDays,
-      paymentDate: paymentDate,
-      referenceDate: finalRefDate,
-      amountPaid: payDaysCount * (activeLoan?.dailyRate || 0)
-    });
-    setShowWhatsappReceipt(true);
-    setIsExpandingPay(false);
+    if (isSubmittingPayment) return;
+    setIsSubmittingPayment(true);
+    try {
+      await onRegisterPayment(activeLoan.id, payDaysCount, paymentDate, customRefDate);
+      const finalRefDate = getPredictedRefDate(customRefDate, payDaysCount - 1, isExcludingSundays);
+      setLastReceiptDetails({
+        x: paidCount + payDaysCount,
+        y: totalDays,
+        paymentDate: paymentDate,
+        referenceDate: finalRefDate,
+        amountPaid: payDaysCount * (activeLoan?.dailyRate || 0)
+      });
+      setShowWhatsappReceipt(true);
+      setIsExpandingPay(false);
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
+  // 1-click quick pay for today
+  const handleQuickPayToday = async () => {
+    if (!activeLoan || isFullyPaid || isSubmittingPayment) return;
+    setIsSubmittingPayment(true);
+    try {
+      await onRegisterPayment(activeLoan.id, 1, baseToday);
+      const nextRef = getPredictedRefDate(lastStoredRefDate, 1, isExcludingSundays);
+      setLastReceiptDetails({
+        x: paidCount + 1,
+        y: totalDays,
+        paymentDate: baseToday,
+        referenceDate: nextRef,
+        amountPaid: activeLoan.dailyRate || 0
+      });
+      setShowWhatsappReceipt(true);
+    } finally {
+      setIsSubmittingPayment(false);
+    }
   };
 
   // WhatsApp receipt generator
@@ -451,6 +490,13 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               <span className="p-1 px-2 bg-zinc-800 text-zinc-400 rounded-lg text-[9px] font-extrabold font-mono flex items-center gap-1">
                 <Clock className="w-3 h-3 text-zinc-500" />
                 EM DIA
+              </span>
+            )}
+
+            {hasPaidToday && !isFullyPaid && (
+              <span className="p-1 px-2 bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 rounded-lg text-[9px] font-extrabold font-mono flex items-center gap-1 shrink-0">
+                <Check className="w-2.5 h-2.5 text-emerald-400" />
+                PAGO HOJE
               </span>
             )}
 
@@ -943,9 +989,10 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
 
           <button
             type="submit"
-            className="w-full py-2 bg-yellow-500 text-zinc-950 hover:bg-yellow-405 font-black text-xs rounded-lg shadow-lg hover:shadow-yellow-500/10 transition-colors cursor-pointer"
+            disabled={isSubmittingPayment}
+            className="w-full py-2 bg-yellow-500 text-zinc-950 hover:bg-yellow-405 font-black text-xs rounded-lg shadow-lg hover:shadow-yellow-500/10 transition-colors cursor-pointer disabled:opacity-50"
           >
-            Confirmar Recebimento
+            {isSubmittingPayment ? "Salvando pagamento..." : "Confirmar Recebimento"}
           </button>
         </form>
       )}
@@ -1327,7 +1374,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                   setPayDaysCount(1);
                   setPaymentDate(simulationDate || getTodayStr());
                   
-                  const defaultRef = getPredictedRefDate(referenceDate, 1, isExcludingSundays);
+                  const defaultRef = getNextInstallmentRefDate(lastStoredRefDate, 1, isExcludingSundays);
                   setCustomRefDate(defaultRef);
 
                   setIsExpandingPay(!isExpandingPay);
@@ -1347,6 +1394,30 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               </div>
             )}
           </div>
+
+          {/* 1-CLICK PAGO HOJE BUTTON */}
+          {!isFullyPaid && (
+            <button
+              type="button"
+              disabled={isSubmittingPayment}
+              onClick={handleQuickPayToday}
+              className={`w-full py-2 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border disabled:opacity-50 ${
+                hasPaidToday
+                  ? "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/25"
+                  : "bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-zinc-950 border-emerald-500/35 shadow-md shadow-emerald-950/20"
+              }`}
+              title="Dar baixa rápida em 1 diária hoje e somar no Caixa do Dia"
+            >
+              <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {isSubmittingPayment
+                  ? "Registrando..."
+                  : hasPaidToday
+                    ? `Pago Hoje (+1 extra • ${formatBRL(activeLoan.dailyRate)})`
+                    : `Pago (${formatBRL(activeLoan.dailyRate)} hoje)`}
+              </span>
+            </button>
+          )}
 
           {/* SECUNDARY ROW: COBRANÇA PIX (COPIAR QR CODE) & SIMULAR RENOVAÇÃO */}
           <div className="grid grid-cols-2 gap-2">
