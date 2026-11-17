@@ -733,7 +733,14 @@ export default function App() {
         </div>
 
         {/* 3. CORE BALANCES (FINANCIAL SUMMARY) */}
-        {stats && <FinancialSummary stats={stats} onTotalInvestedClick={() => setActiveTab("investimentos")} />}
+        {stats && (
+          <FinancialSummary
+            stats={stats}
+            clientsWithLoans={clientsWithLoans}
+            targetDate={simulationDate}
+            onTotalInvestedClick={() => setActiveTab("investimentos")}
+          />
+        )}
 
         {/* 4. TAB NAVIGATION TOGGLES ON SINGLE PAGE (Meets Single-View Guidelines) */}
         <div id="navigation-tabs" className="grid grid-cols-5 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">

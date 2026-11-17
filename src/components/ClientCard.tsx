@@ -22,6 +22,7 @@ import {
   FREQUENCY_UNIT_SINGULAR,
   WEEKDAY_NAMES_FULL,
   WEEKDAY_NAMES_SHORT,
+  getLoanFinalPaymentProjection,
   getLoanFrequency,
   getLoanFrequencyBadge,
   getLoanScheduledDates,
@@ -90,6 +91,11 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     if (!activeLoan) return [];
     return getLoanScheduledDates(activeLoan);
   }, [activeLoan]);
+
+  const endProjection = React.useMemo(() => {
+    if (!activeLoan) return null;
+    return getLoanFinalPaymentProjection(activeLoan, paidCount, clientDetail.payments, baseToday);
+  }, [activeLoan, paidCount, clientDetail.payments, baseToday]);
 
   const limitDateForCutoff = (isToday && !isAfter7PM) ? addDays(baseToday, -1) : baseToday;
   const expectedPayments = allScheduledDates.filter(d => d <= limitDateForCutoff).length;
@@ -829,6 +835,28 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
           <div className="px-3 py-1.5 bg-zinc-900/40 border border-zinc-850 rounded-xl flex items-center justify-between text-[10px] font-mono">
             <span className="text-zinc-400 uppercase font-bold tracking-wider">Próximo Vencimento:</span>
             <span className="text-yellow-400 font-black">{formatFriendlyDate(nextDueDate)}</span>
+          </div>
+        )}
+
+        {/* DATA PREVISTA DO ÚLTIMO PAGAMENTO (SEM CONTAR DOMINGOS ISENTOS) */}
+        {!isFullyPaid && endProjection && (
+          <div className="px-3 py-1.5 bg-emerald-500/5 border border-emerald-500/20 rounded-xl flex items-center justify-between gap-2 text-[10px] font-mono">
+            <span className="text-zinc-400 uppercase font-bold tracking-wider truncate">
+              Último Pagamento{loanFreq === "daily" && isExcludingSundays ? " (s/ dom.)" : ""}:
+            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-emerald-400 font-black">
+                {formatFriendlyDate(endProjection.projectedEndDate)}
+              </span>
+              {endProjection.isExtendedByDelay && (
+                <span
+                  className="text-[9px] text-amber-400/90"
+                  title={`Prazo original do contrato: ${formatFriendlyDate(endProjection.scheduledEndDate)}`}
+                >
+                  (orig. {formatFriendlyDate(endProjection.scheduledEndDate).slice(0, 5)})
+                </span>
+              )}
+            </div>
           </div>
         )}
 

@@ -1,4 +1,4 @@
-import { Loan, PaymentFrequency } from "../types";
+import { Loan, Payment, PaymentFrequency } from "../types";
 import { addDays, formatLocalDate, isSunday, parseLocalDate } from "./dateUtils";
 
 export const WEEKDAY_NAMES_FULL = [
@@ -309,4 +309,85 @@ export function getMonthlyBillingMultiplier(loan: Pick<Loan, "frequency" | "excl
   if (freq === "biweekly") return 2;
   if (freq === "monthly") return 1;
   return loan.excludeSundays !== false ? 26 : 30;
+}
+
+export interface LoanEndProjection {
+  /** Data final prevista no cronograma original (sem contar domingos isentos) */
+  scheduledEndDate: string;
+  /** Data real prevista do último pagamento considerando parcelas restantes e eventuais atrasos */
+  projectedEndDate: string;
+  /** Quantidade de parcelas que ainda faltam */
+  remainingInstallments: number;
+  /** Indica se o prazo se estendeu além da data original por parcelas em atraso */
+  isExtendedByDelay: boolean;
+}
+
+/**
+ * Calcula a data exata do último pagamento de um contrato (ex.: 100 diárias sem contar os domingos isentos),
+ * considerando tanto o cronograma original quanto o saldo de parcelas restantes a partir de `baseToday`.
+ */
+export function getLoanFinalPaymentProjection(
+  loan: Pick<Loan, "startDate" | "totalDays" | "excludeSundays" | "frequency" | "paymentWeekday" | "firstDueDate">,
+  paidCount: number,
+  payments: Pick<Payment, "paymentDate" | "referenceDate">[],
+  baseToday: string
+): LoanEndProjection {
+  const scheduledDates = getLoanScheduledDates(loan);
+  const scheduledEndDate =
+    scheduledDates.length > 0 ? scheduledDates[scheduledDates.length - 1] : loan.startDate;
+  const remainingInstallments = Math.max(0, loan.totalDays - paidCount);
+
+  const latestStoredRef = payments.reduce(
+    (max, p) => (p.referenceDate > max ? p.referenceDate : max),
+    ""
+  );
+
+  if (remainingInstallments === 0) {
+    return {
+      scheduledEndDate,
+      projectedEndDate: latestStoredRef || scheduledEndDate,
+      remainingInstallments: 0,
+      isExtendedByDelay: false
+    };
+  }
+
+  const nextScheduled = paidCount < scheduledDates.length ? scheduledDates[paidCount] : undefined;
+  if (nextScheduled && nextScheduled >= baseToday) {
+    return {
+      scheduledEndDate,
+      projectedEndDate: scheduledEndDate,
+      remainingInstallments,
+      isExtendedByDelay: false
+    };
+  }
+
+  const freq = getLoanFrequency(loan);
+  const isExcluding = loan.excludeSundays !== false;
+  const hasPaidToday = payments.some(
+    p => p.paymentDate === baseToday || (p.referenceDate === baseToday && latestStoredRef === baseToday)
+  );
+  const minDate = hasPaidToday ? addDays(baseToday, 1) : baseToday;
+
+  let firstActiveDate: string;
+  if (freq === "daily") {
+    firstActiveDate = minDate;
+    if (isExcluding && isSunday(firstActiveDate)) {
+      firstActiveDate = addDays(firstActiveDate, 1);
+    }
+  } else {
+    firstActiveDate = nextScheduled || scheduledEndDate || minDate;
+    let guard = 0;
+    while (firstActiveDate < minDate && guard < 500) {
+      guard++;
+      firstActiveDate = stepReferenceDate(firstActiveDate, 1, loan);
+    }
+  }
+
+  const projectedEndDate = stepReferenceDate(firstActiveDate, remainingInstallments - 1, loan);
+  return {
+    scheduledEndDate,
+    projectedEndDate,
+    remainingInstallments,
+    isExtendedByDelay: projectedEndDate > scheduledEndDate
+  };
 }

@@ -1,7 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { ClientWithLoanDetails, Loan, Payment } from "../types";
-import { formatFriendlyDate } from "../utils/dateUtils";
-import { getLoanFrequencyBadge, getLoanScheduledDates } from "../utils/loanSchedule";
+import { formatFriendlyDate, isSunday } from "../utils/dateUtils";
+import {
+  getLoanFrequency,
+  getLoanFrequencyBadge,
+  getLoanScheduledDates,
+  getWeekdayFromDate,
+  stepReferenceDate
+} from "../utils/loanSchedule";
 import {
   buildPaymentReceiptText,
   buildWhatsAppUrl,
@@ -67,15 +73,9 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
 
     clientsWithLoans.forEach(detail => {
       const loan = detail.activeLoan;
-      if (!loan || loan.status === "completed" || detail.client.archived) return;
+      if (!loan || detail.client.archived) return;
+      if (loan.dailyRate <= 0 || loan.totalDays <= 0) return;
 
-      // Build scheduled dates for this contract (diária, semanal, quinzenal ou mensal)
-      const scheduledDates = getLoanScheduledDates(loan);
-
-      const isScheduledToday = scheduledDates.includes(targetDate);
-      if (!isScheduledToday) return;
-
-      const expectedUpToToday = scheduledDates.filter(d => d <= targetDate).length;
       const latestStoredRef = detail.payments.reduce(
         (max, p) => (p.referenceDate > max ? p.referenceDate : max),
         ""
@@ -86,6 +86,48 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
         p.paymentDate === targetDate ||
         (p.referenceDate === targetDate && latestStoredRef === targetDate);
 
+      const paidTodayList = detail.payments.filter(isPaymentForTargetDay);
+      if (loan.status === "completed" && paidTodayList.length === 0) return;
+
+      // Build scheduled dates for this contract (diária, semanal, quinzenal ou mensal)
+      const scheduledDates = getLoanScheduledDates(loan);
+      if (scheduledDates.length === 0) return;
+
+      const freq = getLoanFrequency(loan);
+      const firstDue = scheduledDates[0];
+      let isScheduledForTargetDate = scheduledDates.includes(targetDate);
+
+      // Keep billing active open contracts (payments < totalDays) on valid cycle days even after their original end date
+      if (!isScheduledForTargetDate && firstDue && targetDate >= firstDue) {
+        if (freq === "daily") {
+          isScheduledForTargetDate = !isSunday(targetDate) || loan.excludeSundays === false;
+        } else if (freq === "weekly") {
+          const targetWd =
+            loan.paymentWeekday !== undefined && loan.paymentWeekday >= 0 && loan.paymentWeekday <= 6
+              ? loan.paymentWeekday
+              : getWeekdayFromDate(firstDue);
+          isScheduledForTargetDate = getWeekdayFromDate(targetDate) === targetWd;
+        } else {
+          let cursor = scheduledDates[scheduledDates.length - 1];
+          let guard = 0;
+          while (cursor && cursor < targetDate && guard < 120) {
+            guard++;
+            cursor = stepReferenceDate(cursor, 1, loan);
+            if (cursor === targetDate) {
+              isScheduledForTargetDate = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!isScheduledForTargetDate) return;
+
+      const expectedUpToToday =
+        targetDate > scheduledDates[scheduledDates.length - 1]
+          ? loan.totalDays
+          : scheduledDates.filter(d => d <= targetDate).length;
+
       const paymentsBeforeToday = detail.payments.filter(
         p => p.paymentDate < targetDate && !isPaymentForTargetDay(p)
       ).length;
@@ -93,7 +135,6 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
       // Morning Rule: 1 daily installment for today (NEVER sums overdue installments from previous days)
       if (paymentsBeforeToday < expectedUpToToday) {
         morningTotal = roundBRL(morningTotal + loan.dailyRate);
-        const paidTodayList = detail.payments.filter(isPaymentForTargetDay);
         paidTodayList.forEach(p => settledTargetPaymentsById.set(p.id, p));
         const paidTodayAmount = roundBRL(paidTodayList.reduce((sum, p) => sum + p.amount, 0));
         morningItems.push({
@@ -272,7 +313,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
               {formatBRL(summary.morningTotal)}
             </div>
             <p className="text-[10px] text-zinc-500 mt-1">
-              Total agendado para hoje (diária, semanal, quinzenal e mensal, sem atrasadas)
+              Soma de todas as diárias e parcelas do dia (sem somar atrasos acumulados)
             </p>
           </div>
         </div>
