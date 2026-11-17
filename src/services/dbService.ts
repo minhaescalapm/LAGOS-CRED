@@ -723,7 +723,7 @@ export const dbService = {
       id: generateUUID(),
       clientId,
       amountInvested,
-      totalAmount: Math.round(dailyRate * totalDays),
+      totalAmount: Number((dailyRate * totalDays).toFixed(2)),
       dailyRate,
       totalDays,
       startDate,
@@ -798,7 +798,7 @@ export const dbService = {
       firstDueDate?: string;
     }
   ): Promise<Loan> {
-    const totalAmount = Math.round(dailyRate * totalDays);
+    const totalAmount = Number((dailyRate * totalDays).toFixed(2));
 
     if (options?.frequency !== undefined) {
       saveLoanMeta(id, {
@@ -844,7 +844,7 @@ export const dbService = {
           }
         }
         
-        // Fetch loan to get client_id
+        // Fetch loan to get client_id and keep local cache synced
         const currentLoans = await this.getLoans({ throwOnCloudError: true });
         const oldLoan = currentLoans.find(l => l.id === id);
         return {
@@ -1326,17 +1326,21 @@ export const dbService = {
         validatedPaidCount
       );
 
-      // Build the target payment list preserving existing paymentDate & id where possible
+      // Build the target payment list, syncing paymentDate whenever the payment's referenceDate shifts
       const targetPayments: Payment[] = [];
       for (let i = 0; i < validatedPaidCount; i++) {
         const currentRef = scheduledDates[i] || stepReferenceDate(targetStartDate, i + 1, loan);
         const existing = existingLoanPayments[i];
+        const fallbackPayDate = currentRef <= todayStr ? currentRef : todayStr;
+        const shouldSyncPaymentDate =
+          !existing ||
+          (existing.referenceDate !== currentRef &&
+            (existing.paymentDate === existing.referenceDate || existing.paymentDate > currentRef));
+
         targetPayments.push({
           id: existing ? existing.id : generateUUID(),
           loanId,
-          paymentDate: existing
-            ? existing.paymentDate
-            : (currentRef <= todayStr ? currentRef : todayStr),
+          paymentDate: shouldSyncPaymentDate ? fallbackPayDate : existing.paymentDate,
           referenceDate: currentRef,
           amount: loan.dailyRate
         });
@@ -1354,16 +1358,40 @@ export const dbService = {
       const refsChanged = existingLoanPayments
         .slice(0, overlapCount)
         .some((p, idx) => p.referenceDate !== targetPayments[idx]?.referenceDate);
+      const nextStatus =
+        loan.status === "completed" && validatedPaidCount < loan.totalDays
+          ? "active"
+          : loan.status;
 
       // Supabase synchronization
       if (supabase) {
         try {
-          if (startDateChanged) {
+          if (startDateChanged || nextStatus !== loan.status) {
+            const loanUpdatePayload: Record<string, any> = {};
+            if (startDateChanged) {
+              loanUpdatePayload.start_date = targetStartDate;
+              if (freq !== "daily") {
+                loanUpdatePayload.first_due_date = effectiveFirstDueDate ?? null;
+              }
+            }
+            if (nextStatus !== loan.status) {
+              loanUpdatePayload.status = nextStatus;
+            }
             const { error: loanErr } = await supabase
               .from("loans")
-              .update({ start_date: targetStartDate })
+              .update(loanUpdatePayload)
               .eq("id", loanId);
-            if (loanErr) throw loanErr;
+            if (loanErr) {
+              if (isMissingColumnError(loanErr) && startDateChanged) {
+                const { error: fallbackErr } = await supabase
+                  .from("loans")
+                  .update({ start_date: targetStartDate })
+                  .eq("id", loanId);
+                if (fallbackErr) throw fallbackErr;
+              } else {
+                throw loanErr;
+              }
+            }
           }
 
           if (!startDateChanged && !refsChanged && validatedPaidCount === existingLoanPayments.length) {
@@ -1397,7 +1425,7 @@ export const dbService = {
               if (delErr) throw delErr;
             }
           } else {
-            // Start date or reference schedule changed: reconstruct while preserving original payment_dates
+            // Start date or reference schedule changed: reconstruct payments cleanly
             const { error: delErr } = await supabase
               .from("payments")
               .delete()
@@ -1425,7 +1453,14 @@ export const dbService = {
       // Local Storage synchronization
       try {
         const updatedLoans = loans.map(l =>
-          l.id === loanId ? { ...l, startDate: targetStartDate } : l
+          l.id === loanId
+            ? {
+                ...l,
+                startDate: targetStartDate,
+                firstDueDate: freq !== "daily" ? effectiveFirstDueDate : l.firstDueDate,
+                status: nextStatus
+              }
+            : l
         );
         localStorage.setItem(LOANS_KEY, JSON.stringify(updatedLoans));
 

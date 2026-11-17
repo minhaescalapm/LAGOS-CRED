@@ -43,7 +43,7 @@ interface ClientCardProps {
   onOpenPixModal: (clientName: string) => void;
   onDeleteClient: (clientId: string, loanId?: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
-  onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => void;
+  onAdjustLoan?: (loanId: string, targetPaidCount: number, targetStartDate: string) => Promise<void> | void;
   onToggleSunday?: (loanId: string) => void;
   onCopyContract?: (clientDetail: ClientWithLoanDetails) => void;
   onRenewLoan?: (
@@ -160,9 +160,12 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   
   // States for Contract Adjustments
   const [isAdjusting, setIsAdjusting] = useState(false);
+  const [isSubmittingAdjustment, setIsSubmittingAdjustment] = useState(false);
   const [adjustedPaidCount, setAdjustedPaidCount] = useState(paidCount);
   const [adjustedStartDate, setAdjustedStartDate] = useState(() => activeLoan?.startDate || referenceDate || getTodayStr());
-  const [adjustedBaseToday, setAdjustedBaseToday] = useState(() => baseToday);
+  const [adjustedBaseToday, setAdjustedBaseToday] = useState(() => (paidCount > 0 ? lastStoredRefDate : baseToday));
+  const [hasEditedEndRef, setHasEditedEndRef] = useState(false);
+  const [hasEditedStartDate, setHasEditedStartDate] = useState(false);
 
   // States for Contract Renewal (Simulador de Renovação de Contrato)
   const [isRenewing, setIsRenewing] = useState(false);
@@ -176,20 +179,35 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const [renewFrequency, setRenewFrequency] = useState<PaymentFrequency>(() => getLoanFrequency(activeLoan));
   const [renewWeekday, setRenewWeekday] = useState<number>(() => activeLoan?.paymentWeekday ?? 5);
 
-  // Synchronize when parent triggers update/save
-  React.useEffect(() => {
+  const openAdjustmentPanel = () => {
+    if (!activeLoan) return;
     setAdjustedPaidCount(paidCount);
-  }, [paidCount]);
+    setAdjustedStartDate(activeLoan.startDate);
+    setAdjustedBaseToday(paidCount > 0 ? lastStoredRefDate : baseToday);
+    setHasEditedEndRef(false);
+    setHasEditedStartDate(false);
+    setIsAdjusting(true);
+    setIsExpandingPay(false);
+    setIsRenewing(false);
+  };
+
+  // Synchronize when parent triggers update/save (never overwrite unsaved inline edits while panel is open)
+  React.useEffect(() => {
+    if (isAdjusting) return;
+    setAdjustedPaidCount(paidCount);
+  }, [paidCount, isAdjusting]);
 
   React.useEffect(() => {
+    if (isAdjusting) return;
     if (activeLoan) {
       setAdjustedStartDate(activeLoan.startDate);
     }
-  }, [activeLoan?.startDate]);
+  }, [activeLoan?.startDate, isAdjusting]);
 
   React.useEffect(() => {
-    setAdjustedBaseToday(baseToday);
-  }, [baseToday]);
+    if (isAdjusting) return;
+    setAdjustedBaseToday(paidCount > 0 ? lastStoredRefDate : baseToday);
+  }, [baseToday, lastStoredRefDate, paidCount, isAdjusting]);
 
   React.useEffect(() => {
     setRenewStartDate(simulationDate || getTodayStr());
@@ -220,14 +238,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   };
 
   React.useEffect(() => {
-    if (activeLoan) {
-      setAdjustedStartDate(activeLoan.startDate);
-    }
-  }, [activeLoan?.startDate]);
-
-  React.useEffect(() => {
     setPaymentDate(simulationDate || getTodayStr());
-    setAdjustedBaseToday(simulationDate || getTodayStr());
   }, [simulationDate]);
 
   React.useEffect(() => {
@@ -236,12 +247,21 @@ export const ClientCard: React.FC<ClientCardProps> = ({
 
   const handleAdjustmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeLoan || !onAdjustLoan) return;
+    if (!activeLoan || !onAdjustLoan || isSubmittingAdjustment) return;
+    setIsSubmittingAdjustment(true);
     try {
-      await onAdjustLoan(activeLoan.id, adjustedPaidCount, adjustedStartDate);
+      const finalStartDate =
+        hasEditedEndRef && !hasEditedStartDate && adjustedPaidCount > 0
+          ? computedRetroStartDate
+          : adjustedStartDate;
+      await onAdjustLoan(activeLoan.id, adjustedPaidCount, finalStartDate);
+      setHasEditedEndRef(false);
+      setHasEditedStartDate(false);
       setIsAdjusting(false);
     } catch (err) {
       console.error("Erro ao reajustar parcelas e data:", err);
+    } finally {
+      setIsSubmittingAdjustment(false);
     }
   };
 
@@ -466,7 +486,6 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
   const progressRatio = totalDays > 0 ? (paidCount / totalDays) * 100 : 0;
   const isFullyPaid = paidCount >= totalDays;
   const remainingCount = Math.max(0, totalDays - paidCount);
-  const remainingAmount = Math.max(0, remainingCount * activeLoan.dailyRate);
 
   const predictedNewReferenceDate = getPredictedRefDate(customRefDate, Math.max(0, payDaysCount - 1));
 
@@ -666,8 +685,11 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 {activeLoan && (
                   <button
                     onClick={() => {
-                      setIsAdjusting(!isAdjusting);
-                      setIsExpandingPay(false); // Mutual exclusion
+                      if (isAdjusting) {
+                        setIsAdjusting(false);
+                      } else {
+                        openAdjustmentPanel();
+                      }
                     }}
                     className={`p-1 rounded-lg transition-all cursor-pointer ${
                       isAdjusting 
@@ -708,7 +730,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
         </div>
 
         {/* METADADOS FINANCIAMENTO */}
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 py-2 border-y border-zinc-800/60 text-center">
+        <div className="mt-4 grid grid-cols-3 gap-2 py-2 border-y border-zinc-800/60 text-center">
           <div>
             <span className="text-[9px] text-zinc-550 block uppercase font-bold tracking-wider">Investido</span>
             <span className="font-mono text-xs font-bold text-zinc-300">{formatBRL(activeLoan.amountInvested)}</span>
@@ -722,12 +744,6 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
           <div>
             <span className="text-[9px] text-zinc-550 block uppercase font-bold tracking-wider">Total</span>
             <span className="font-mono text-xs font-bold text-zinc-200">{formatBRL(activeLoan.dailyRate * activeLoan.totalDays)}</span>
-          </div>
-          <div>
-            <span className="text-[9px] text-zinc-550 block uppercase font-bold tracking-wider">Restante a Pagar</span>
-            <span className={`font-mono text-xs font-bold ${remainingAmount > 0 ? "text-sky-400" : "text-emerald-400"}`}>
-              {formatBRL(remainingAmount)}
-            </span>
           </div>
         </div>
       </div>
@@ -743,7 +759,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               </span>
               {remainingCount > 0 && (
                 <span className="text-[9px] font-mono font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">
-                  Falta {formatBRL(remainingAmount)} ({remainingCount}x)
+                  {remainingCount === 1 ? "Falta 1x" : `Faltam ${remainingCount}x`}
                 </span>
               )}
             </div>
@@ -753,11 +769,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  setIsAdjusting(true);
-                  setIsExpandingPay(false);
-                  setIsRenewing(false);
-                }}
+                onClick={openAdjustmentPanel}
                 className="p-1 px-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-amber-500 rounded border border-zinc-850 bg-zinc-900/60 transition-all cursor-pointer text-[8px] font-bold flex items-center gap-1"
                 title="Editar pagas"
               >
@@ -800,11 +812,7 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  setIsAdjusting(true);
-                  setIsExpandingPay(false);
-                  setIsRenewing(false);
-                }}
+                onClick={openAdjustmentPanel}
                 className="p-0.5 px-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-850 rounded hover:text-amber-500 text-zinc-400 transition-all cursor-pointer text-[8px] font-bold flex items-center gap-0.5"
                 title="Editar última atualização"
               >
@@ -1229,22 +1237,38 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               <input
                 type="date"
                 value={adjustedStartDate}
-                onChange={e => setAdjustedStartDate(e.target.value)}
+                onChange={e => {
+                  setAdjustedStartDate(e.target.value);
+                  setHasEditedStartDate(true);
+                  setHasEditedEndRef(false);
+                }}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-1.5 text-[11px] text-white font-mono focus:outline-none cursor-pointer h-[34px] font-bold"
               />
             </div>
 
             {/* Data Base/Fim */}
             <div>
-              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">Fim (Referência)</label>
+              <label className="text-[9px] text-zinc-400 font-bold uppercase block mb-1">
+                {adjustedPaidCount > 0 ? "Última Paga (Ref.)" : "Fim (Referência)"}
+              </label>
               <input
                 type="date"
                 value={adjustedBaseToday}
-                onChange={e => setAdjustedBaseToday(e.target.value)}
+                onChange={e => {
+                  setAdjustedBaseToday(e.target.value);
+                  setHasEditedEndRef(true);
+                  setHasEditedStartDate(false);
+                }}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-1.5 text-[11px] text-white font-mono focus:outline-none cursor-pointer h-[34px] font-bold"
               />
             </div>
           </div>
+
+          {hasEditedEndRef && !hasEditedStartDate && adjustedPaidCount > 0 && (
+            <div className="p-2 bg-emerald-500/10 border border-emerald-500/25 rounded-lg text-[10px] font-mono text-emerald-300">
+              Ao confirmar, o início será ajustado para <strong>{formatFriendlyDate(computedRetroStartDate)}</strong> para manter <strong>{adjustedPaidCount}x</strong> até <strong>{formatFriendlyDate(adjustedBaseToday)}</strong>.
+            </div>
+          )}
 
           {/* CÁLCULO INTELIGENTE / AUTOMÁTICO */}
           <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-850 space-y-3.5 text-[10px] font-mono leading-relaxed">
@@ -1257,7 +1281,11 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               </p>
               <button
                 type="button"
-                onClick={() => setAdjustedStartDate(computedRetroStartDate)}
+                onClick={() => {
+                  setAdjustedStartDate(computedRetroStartDate);
+                  setHasEditedStartDate(true);
+                  setHasEditedEndRef(false);
+                }}
                 className="w-full py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/25 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors"
               >
                 📥 Aplicar Data Retroativa ({formatFriendlyDate(computedRetroStartDate)})
@@ -1271,7 +1299,10 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               </p>
               <button
                 type="button"
-                onClick={() => setAdjustedPaidCount(expectedPaidCount)}
+                onClick={() => {
+                  setAdjustedPaidCount(expectedPaidCount);
+                  setHasEditedEndRef(false);
+                }}
                 className="w-full py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 border border-yellow-500/25 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer transition-colors"
               >
                 📥 Ajustar Parcelas Pagas para {expectedPaidCount}x
@@ -1281,9 +1312,10 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
 
           <button
             type="submit"
-            className="w-full py-2.5 bg-amber-500 hover:bg-amber-405 text-zinc-950 font-black text-xs rounded-lg shadow-lg hover:shadow-amber-500/15 transition-all cursor-pointer uppercase tracking-wider"
+            disabled={isSubmittingAdjustment}
+            className="w-full py-2.5 bg-amber-500 hover:bg-amber-405 text-zinc-950 font-black text-xs rounded-lg shadow-lg hover:shadow-amber-500/15 transition-all cursor-pointer uppercase tracking-wider disabled:opacity-50"
           >
-            Confirmar Reajuste
+            {isSubmittingAdjustment ? "Salvando alterações..." : "Confirmar Reajuste"}
           </button>
         </form>
       )}

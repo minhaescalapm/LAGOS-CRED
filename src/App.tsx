@@ -317,6 +317,7 @@ export default function App() {
     firstDueDate?: string;
   }) => {
     if (!editingClient) return;
+    refreshSequenceRef.current += 1;
     setIsLoading(true);
     try {
       await dbService.editClient(editingClient.client.id, data.name, data.phone);
@@ -338,11 +339,12 @@ export default function App() {
         const paidCountChanged = data.alreadyPaidCount !== undefined && data.alreadyPaidCount !== editingClient.paidCount;
         const startDateChanged = data.startDate !== editingClient.activeLoan.startDate;
         const dailyRateChanged = data.dailyRate !== editingClient.activeLoan.dailyRate;
+        const totalDaysChanged = data.totalDays !== editingClient.activeLoan.totalDays;
         const frequencyChanged = (data.frequency || "daily") !== getLoanFrequency(editingClient.activeLoan);
         const weekdayChanged = data.paymentWeekday !== editingClient.activeLoan.paymentWeekday;
         const firstDueChanged = data.firstDueDate !== editingClient.activeLoan.firstDueDate;
 
-        if (paidCountChanged || startDateChanged || dailyRateChanged || frequencyChanged || weekdayChanged || firstDueChanged) {
+        if (paidCountChanged || startDateChanged || dailyRateChanged || totalDaysChanged || frequencyChanged || weekdayChanged || firstDueChanged) {
           await dbService.adjustLoanPaymentsAndStartDate(
             editingClient.activeLoan.id,
             data.alreadyPaidCount !== undefined ? data.alreadyPaidCount : editingClient.paidCount,
@@ -509,6 +511,7 @@ export default function App() {
 
   // Handle Adjusting Loan start date and paid count directly
   const handleAdjustLoan = async (loanId: string, targetPaidCount: number, targetStartDate: string) => {
+    refreshSequenceRef.current += 1;
     setIsLoading(true);
     try {
       await dbService.adjustLoanPaymentsAndStartDate(loanId, targetPaidCount, targetStartDate, simulationDate);
@@ -516,6 +519,7 @@ export default function App() {
     } catch (err: any) {
       console.error("Erro ao reajustar contrato:", err);
       alert("Erro ao reajustar contrato: " + (err.message || "Tente novamente."));
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -1366,12 +1370,14 @@ export default function App() {
 
       {/* MODAL 1B: EDIT CLIENT FORM */}
       {editingClient && (
-        <ClientForm
-          clientToEdit={editingClient}
-          simulationDate={simulationDate}
-          onClose={() => setEditingClient(null)}
-          onSubmit={handleEditClientSubmit}
-        />
+        <React.Fragment key={editingClient.activeLoan ? `edit-${editingClient.activeLoan.id}` : `edit-${editingClient.client.id}`}>
+          <ClientForm
+            clientToEdit={editingClient}
+            simulationDate={simulationDate}
+            onClose={() => setEditingClient(null)}
+            onSubmit={handleEditClientSubmit}
+          />
+        </React.Fragment>
       )}
 
       {/* MODAL 1C: COPY CLIENT CONTRACT FORM */}

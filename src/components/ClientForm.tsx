@@ -969,7 +969,7 @@ ${ruleNote}
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className={`grid gap-3 pt-1 ${clientToEdit && !isCopyMode ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2"}`}>
                   {/* Quantidade de Parcelas */}
                   <div>
                     <label className="text-[10px] text-zinc-400 font-medium block mb-1">
@@ -1004,6 +1004,25 @@ ${ruleNote}
                       required
                     />
                   </div>
+
+                  {/* Parcelas Já Pagas (somente na edição direta do contrato) */}
+                  {clientToEdit && !isCopyMode && (
+                    <div>
+                      <label className="text-[10px] text-zinc-400 font-medium block mb-1">Parcelas Já Pagas</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max={Number(totalDays) || 365}
+                        value={alreadyPaidCount}
+                        onChange={e => {
+                          const maxVal = Math.max(0, Number(totalDays) || 365);
+                          const next = Math.min(maxVal, Math.max(0, Number(e.target.value) || 0));
+                          setAlreadyPaidCount(next);
+                        }}
+                        className="w-full bg-zinc-950/60 border border-zinc-855 focus:border-amber-400 focus:outline-none rounded-xl py-2 px-3 text-sm text-amber-400 transition-colors font-mono font-bold h-[42px] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                  )}
 
                   {/* Data Inicial */}
                   <div>
