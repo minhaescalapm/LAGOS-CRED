@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { dbService, buildClientLoanDetail, deduplicateAndSortPayments } from "./services/dbService";
 import { ClientWithLoanDetails, FinancialStats, Loan, Payment, PaymentFrequency } from "./types";
 import { getTodayStr, formatFriendlyDate } from "./utils/dateUtils";
@@ -16,6 +16,19 @@ import { SmartAgenda } from "./components/SmartAgenda";
 import { LoginScreen } from "./components/LoginScreen";
 import { InvestmentsDetails } from "./components/InvestmentsDetails";
 import { DailyCollectionPanel } from "./components/DailyCollectionPanel";
+import { OverdueDebtsTab } from "./components/OverdueDebtsTab";
+import { NotificationSchedulerModal } from "./components/NotificationSchedulerModal";
+import {
+  NotificationSettings,
+  checkAndFireDueReminders,
+  computeDailyNotificationSummary,
+  getBrowserNotificationPermission,
+  isServiceWorkerSupported,
+  loadNotificationSettings,
+  registerNotificationServiceWorker,
+  saveNotificationSettings,
+  syncRemindersWithServiceWorker
+} from "./services/notificationService";
 import { 
   Plus, 
   Search, 
@@ -38,7 +51,9 @@ import {
   ArrowLeft,
   Server,
   LogOut,
-  TrendingUp
+  TrendingUp,
+  AlertTriangle,
+  Bell
 } from "lucide-react";
 
 export default function App() {
@@ -50,7 +65,7 @@ export default function App() {
   const refreshSequenceRef = useRef(0);
 
   // Filter & Search states
-  const [activeTab, setActiveTab] = useState<"home" | "collections" | "financial_control" | "agenda" | "investimentos">("home");
+  const [activeTab, setActiveTab] = useState<"home" | "collections" | "debts" | "financial_control" | "agenda" | "investimentos">("home");
   const [agendaPreSelectedDate, setAgendaPreSelectedDate] = useState<string | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"ALL" | "DELAYED" | "UP_TO_DATE" | "COMPLETED" | "NO_LOAN">("ALL");
@@ -71,8 +86,76 @@ export default function App() {
   const [showDbGuide, setShowDbGuide] = useState(false);
   const [sqlCopied, setSqlCopied] = useState(false);
   const [showQuickCollectModal, setShowQuickCollectModal] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(() =>
+    loadNotificationSettings()
+  );
   const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
   const [isTestingDiag, setIsTestingDiag] = useState(false);
+
+  const notificationSummary = useMemo(
+    () => computeDailyNotificationSummary(clientsWithLoans, simulationDate),
+    [clientsWithLoans, simulationDate]
+  );
+
+  const handleUpdateNotificationSettings = (next: NotificationSettings) => {
+    setNotificationSettings(next);
+    saveNotificationSettings(next);
+  };
+
+  const notificationsActive =
+    notificationSettings.enabled && getBrowserNotificationPermission() === "granted";
+
+  // Register dedicated background notification Service Worker & listen for notification clicks
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    registerNotificationServiceWorker();
+
+    if (!isServiceWorkerSupported()) return;
+    const handleSwMessage = (event: MessageEvent) => {
+      const msg = event.data;
+      if (msg && msg.type === "NOTIFICATION_NAVIGATE") {
+        if (msg.tab === "debts" || msg.tab === "collections" || msg.tab === "home") {
+          setActiveTab(msg.tab);
+        }
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handleSwMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", handleSwMessage);
+    };
+  }, [isLoggedIn]);
+
+  // Sync scheduled reminders to Service Worker and poll every 20s + visibility changes
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    syncRemindersWithServiceWorker(notificationSettings, notificationSummary);
+
+    let cancelled = false;
+    const runCheck = async () => {
+      const res = await checkAndFireDueReminders(notificationSettings, notificationSummary);
+      if (!cancelled && res.firedSlotLabels.length > 0) {
+        setNotificationSettings(res.updatedSettings);
+      }
+    };
+
+    runCheck();
+    const intervalId = window.setInterval(runCheck, 20000);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        syncRemindersWithServiceWorker(notificationSettings, notificationSummary);
+        runCheck();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [isLoggedIn, notificationSettings, notificationSummary]);
 
   const runDiagnostics = async () => {
     setIsTestingDiag(true);
@@ -641,6 +724,21 @@ export default function App() {
               <span className="hidden sm:inline">Gerar Demo</span>
             </button>
 
+            {/* Alertas / Notificações Agendadas */}
+            <button
+              onClick={() => setShowNotificationsModal(true)}
+              className="p-1.5 sm:px-3 sm:py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-semibold rounded-lg border border-zinc-800 flex items-center gap-1.5 transition-all cursor-pointer relative"
+              title="Notificações Push Agendadas (2º plano)"
+            >
+              <Bell className={`w-3.5 h-3.5 ${notificationsActive ? "text-emerald-400" : "text-yellow-500"}`} />
+              <span className="hidden md:inline">Notificações</span>
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  notificationsActive ? "bg-emerald-400" : "bg-amber-400 animate-pulse"
+                }`}
+              />
+            </button>
+
             {/* PWA Guide button */}
             <button
               onClick={() => setShowPwaGuide(true)}
@@ -687,6 +785,8 @@ export default function App() {
           allPayments={allPayments}
           targetDate={simulationDate}
           onMarkPaidToday={(loanId) => handleRegisterPayment(loanId, 1, simulationDate)}
+          onOpenNotifications={() => setShowNotificationsModal(true)}
+          notificationsActive={notificationsActive}
           isLoading={isLoading}
         />
         
@@ -743,74 +843,104 @@ export default function App() {
         )}
 
         {/* 4. TAB NAVIGATION TOGGLES ON SINGLE PAGE (Meets Single-View Guidelines) */}
-        <div id="navigation-tabs" className="grid grid-cols-5 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
-          <button
-            onClick={() => setActiveTab("home")}
-            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === "home"
-                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            <Home className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden sm:inline">Tela Inicial</span>
-            <span className="sm:hidden">Início</span>
-          </button>
+        {(() => {
+          const overdueCount = clientsWithLoans.filter(
+            c =>
+              c.activeLoan &&
+              c.activeLoan.status !== "completed" &&
+              !c.client.archived &&
+              c.isDelayed &&
+              c.daysBehind >= 1 &&
+              c.paidCount < c.totalDays
+          ).length;
+          return (
+            <div id="navigation-tabs" className="grid grid-cols-3 sm:grid-cols-6 gap-1 border-b border-zinc-850/85 select-none bg-zinc-950/20 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveTab("home")}
+                className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeTab === "home"
+                    ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                <Home className="w-4 h-4 text-amber-500 shrink-0" />
+                <span className="hidden sm:inline">Tela Inicial</span>
+                <span className="sm:hidden">Início</span>
+              </button>
 
-          <button
-            onClick={() => setActiveTab("collections")}
-            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === "collections"
-                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-            title="Diretório de Clientes e Fichas de Cobrança"
-          >
-            <Users className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden sm:inline">Clientes</span>
-            <span className="sm:hidden font-sans">Clientes</span>
-          </button>
+              <button
+                onClick={() => setActiveTab("collections")}
+                className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeTab === "collections"
+                    ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+                title="Diretório de Clientes e Fichas de Cobrança"
+              >
+                <Users className="w-4 h-4 text-amber-500 shrink-0" />
+                <span>Clientes</span>
+              </button>
 
-          <button
-            onClick={() => setActiveTab("agenda")}
-            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === "agenda"
-                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-            title="Agenda Inteligente 📅"
-          >
-            <CalendarDays className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden sm:inline">Agenda Inteligente</span>
-            <span className="sm:hidden">Agenda</span>
-          </button>
+              <button
+                onClick={() => setActiveTab("debts")}
+                className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeTab === "debts"
+                    ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-red-400 border border-red-500/30 shadow-inner"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+                title="Dívidas separadas com prestações atrasadas e cobrança direta no WhatsApp"
+              >
+                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>Dívidas</span>
+                {overdueCount > 0 && (
+                  <span className="px-1.5 py-0.5 text-[9px] font-mono font-black rounded-md bg-red-500/20 text-red-400 border border-red-500/30 leading-none">
+                    {overdueCount}
+                  </span>
+                )}
+              </button>
 
-          <button
-            onClick={() => setActiveTab("financial_control")}
-            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === "financial_control"
-                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-850/30 shadow-inner"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden sm:inline">Controle Financeiro</span>
-            <span className="sm:hidden">Financeiro</span>
-          </button>
+              <button
+                onClick={() => setActiveTab("agenda")}
+                className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeTab === "agenda"
+                    ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-800/60 shadow-inner"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+                title="Agenda Inteligente 📅"
+              >
+                <CalendarDays className="w-4 h-4 text-amber-500 shrink-0" />
+                <span className="hidden sm:inline">Agenda Inteligente</span>
+                <span className="sm:hidden">Agenda</span>
+              </button>
 
-          <button
-            onClick={() => setActiveTab("investimentos")}
-            className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === "investimentos"
-                ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-850/30 shadow-inner"
-                : "text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            <TrendingUp className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="hidden sm:inline">Investimentos</span>
-            <span className="sm:hidden">Investido</span>
-          </button>
-        </div>
+              <button
+                onClick={() => setActiveTab("financial_control")}
+                className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeTab === "financial_control"
+                    ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-850/30 shadow-inner"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                <span className="hidden sm:inline">Controle Financeiro</span>
+                <span className="sm:hidden">Financeiro</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("investimentos")}
+                className={`py-3 text-[11px] sm:text-xs md:text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  activeTab === "investimentos"
+                    ? "bg-gradient-to-b from-zinc-850 to-zinc-900/40 text-yellow-500 border border-zinc-850/30 shadow-inner"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                <TrendingUp className="w-4 h-4 text-amber-500 shrink-0" />
+                <span className="hidden sm:inline">Investimentos</span>
+                <span className="sm:hidden">Investido</span>
+              </button>
+            </div>
+          );
+        })()}
 
         {/* TELA INICIAL (Dashboard) */}
         {activeTab === "home" && stats && (
@@ -1119,6 +1249,36 @@ export default function App() {
           </div>
         )}
 
+
+        {/* TAB 2: DÍVIDAS & PRESTAÇÕES ATRASADAS (COBRANÇA DIRETA NO WHATSAPP) */}
+        {activeTab === "debts" && (
+          <div className="animate-fade-in space-y-5">
+            <div className="flex justify-start">
+              <button
+                type="button"
+                onClick={() => setActiveTab("home")}
+                className="py-2 px-4 bg-zinc-900 hover:bg-zinc-800 text-yellow-500 font-bold text-xs rounded-xl border border-zinc-850 flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-black/40"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Voltar para Tela Inicial</span>
+              </button>
+            </div>
+
+            <OverdueDebtsTab
+              clientsWithLoans={clientsWithLoans}
+              targetDate={simulationDate}
+              onOpenPixModal={(clName) => setPixModal({ isOpen: true, clientName: clName })}
+              onIncrementCharge={handleIncrementCharge}
+              onRegisterPayment={handleRegisterPayment}
+              onSelectClientInDirectory={(clientName) => {
+                setSearchTerm(clientName);
+                setFilterType("DELAYED");
+                setActiveTab("collections");
+              }}
+              isLoading={isLoading}
+            />
+          </div>
+        )}
 
         {/* TAB 3: CONTROLE FINANCEIRO & DEEXPANSÃO PROJECTIONS */}
         {activeTab === "financial_control" && stats && (
@@ -1683,6 +1843,15 @@ CREATE POLICY "Permitir delete para todos" ON public.payments FOR DELETE USING (
         isOpen={showQuickCollectModal}
         onClose={() => setShowQuickCollectModal(false)}
         clientsWithLoans={clientsWithLoans}
+      />
+
+      {/* SCHEDULED BROWSER NOTIFICATIONS MODAL */}
+      <NotificationSchedulerModal
+        isOpen={showNotificationsModal}
+        onClose={() => setShowNotificationsModal(false)}
+        settings={notificationSettings}
+        onUpdateSettings={handleUpdateNotificationSettings}
+        summary={notificationSummary}
       />
 
     </div>

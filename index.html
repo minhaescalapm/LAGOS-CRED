@@ -21,7 +21,10 @@
             navigator.serviceWorker.getRegistrations().then(function(registrations) {
               if (registrations && registrations.length > 0) {
                 for (var i = 0; i < registrations.length; i++) {
-                  registrations[i].unregister();
+                  var scriptUrl = (registrations[i].active && registrations[i].active.scriptURL) || '';
+                  if (scriptUrl.indexOf('/notifications-sw.js') === -1) {
+                    registrations[i].unregister();
+                  }
                 }
               }
             });

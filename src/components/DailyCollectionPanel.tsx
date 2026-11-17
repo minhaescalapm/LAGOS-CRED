@@ -23,7 +23,8 @@ import {
   ChevronUp,
   Check,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  Bell
 } from "lucide-react";
 
 const roundBRL = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
@@ -34,18 +35,23 @@ interface DailyCollectionPanelProps {
   allPayments: Payment[];
   targetDate: string;
   onMarkPaidToday: (loanId: string) => Promise<Payment[] | void>;
+  onOpenNotifications?: () => void;
+  notificationsActive?: boolean;
   isLoading?: boolean;
 }
 
 export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
   clientsWithLoans,
-  allLoans,
-  allPayments,
+  allLoans: _allLoans,
+  allPayments: _allPayments,
   targetDate,
   onMarkPaidToday,
+  onOpenNotifications,
+  notificationsActive = false,
   isLoading = false
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showPaidNames, setShowPaidNames] = useState(true);
   const [payingLoanId, setPayingLoanId] = useState<string | null>(null);
 
   const formatBRL = (val: number) =>
@@ -55,11 +61,6 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
     }).format(val);
 
   const summary = useMemo(() => {
-    const activeClientIds = new Set(clientsWithLoans.map(c => c.client.id));
-    const activeLoanIds = new Set(
-      allLoans.filter(l => activeClientIds.has(l.clientId)).map(l => l.id)
-    );
-
     const morningItems: {
       detail: ClientWithLoanDetails;
       loan: Loan;
@@ -68,7 +69,6 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
       paidTodayAmount: number;
     }[] = [];
 
-    const settledTargetPaymentsById = new Map<string, Payment>();
     let morningTotal = 0;
 
     clientsWithLoans.forEach(detail => {
@@ -135,75 +135,39 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
       // Morning Rule: 1 daily installment for today (NEVER sums overdue installments from previous days)
       if (paymentsBeforeToday < expectedUpToToday) {
         morningTotal = roundBRL(morningTotal + loan.dailyRate);
-        paidTodayList.forEach(p => settledTargetPaymentsById.set(p.id, p));
-        const paidTodayAmount = roundBRL(paidTodayList.reduce((sum, p) => sum + p.amount, 0));
+        const rawPaidAmount = roundBRL(paidTodayList.reduce((sum, p) => sum + p.amount, 0));
+        // Only count today's daily/scheduled portion (1 installment max) inside "Já Recebi no Dia (Pagos)"
+        const paidDailyAmount = paidTodayList.length > 0 ? Math.min(loan.dailyRate, rawPaidAmount) : 0;
         morningItems.push({
           detail,
           loan,
           dailyRate: loan.dailyRate,
           paidToday: paidTodayList.length > 0,
-          paidTodayAmount
+          paidTodayAmount: paidDailyAmount
         });
       }
     });
 
-    // Also include all payments physically received on targetDate (e.g. overdue/advance/extra from non-morning clients)
-    allPayments.forEach(p => {
-      if (p.paymentDate === targetDate && activeLoanIds.has(p.loanId)) {
-        settledTargetPaymentsById.set(p.id, p);
-      }
-    });
+    const pendingMorning = morningItems.filter(m => !m.paidToday);
+    const paidMorning = morningItems.filter(m => m.paidToday);
 
-    const todayPayments = Array.from(settledTargetPaymentsById.values());
-    const receivedTodayTotal = roundBRL(todayPayments.reduce((sum, p) => sum + p.amount, 0));
-
-    // Extra / overdue payments received today from clients not in morning list
-    const morningLoanIds = new Set(morningItems.map(m => m.loan.id));
-    type ExtraClientPayment = { loanId: string; clientName: string; amount: number; count: number };
-    const extraTodayClients = todayPayments
-      .filter(p => !morningLoanIds.has(p.loanId))
-      .reduce((acc: ExtraClientPayment[], p) => {
-        const existing = acc.find(item => item.loanId === p.loanId);
-        if (existing) {
-          existing.amount = roundBRL(existing.amount + p.amount);
-          existing.count += 1;
-        } else {
-          const loan = allLoans.find(l => l.id === p.loanId);
-          const client = loan ? clientsWithLoans.find(c => c.client.id === loan.clientId)?.client : undefined;
-          acc.push({
-            loanId: p.loanId,
-            clientName: client?.name || "Cliente",
-            amount: p.amount,
-            count: 1
-          });
-        }
-        return acc;
-      }, []);
-
-    // Sum remaining today strictly across scheduled morning clients so extra/overdue payments never distort other clients' open amounts
+    const receivedTodayTotal = roundBRL(paidMorning.reduce((sum, m) => sum + m.paidTodayAmount, 0));
     const remainingToday = roundBRL(
       morningItems.reduce((sum, m) => sum + Math.max(0, roundBRL(m.dailyRate - m.paidTodayAmount)), 0)
     );
-    const morningCollectedPortion = roundBRL(Math.max(0, morningTotal - remainingToday));
-    const surplusToday = roundBRL(Math.max(0, receivedTodayTotal - morningCollectedPortion));
-    const progressPct = morningTotal > 0 ? Math.min(100, (morningCollectedPortion / morningTotal) * 100) : 0;
-
-    const pendingMorning = morningItems.filter(m => !m.paidToday);
-    const paidMorning = morningItems.filter(m => m.paidToday);
+    const progressPct = morningTotal > 0 ? Math.min(100, (receivedTodayTotal / morningTotal) * 100) : 0;
 
     return {
       morningTotal,
       morningCount: morningItems.length,
       receivedTodayTotal,
-      receivedTodayCount: todayPayments.length,
+      receivedTodayCount: paidMorning.length,
       remainingToday,
-      surplusToday,
       progressPct,
       pendingMorning,
-      paidMorning,
-      extraTodayClients
+      paidMorning
     };
-  }, [clientsWithLoans, allLoans, allPayments, targetDate]);
+  }, [clientsWithLoans, targetDate]);
 
   const handleQuickPay = async (detail: ClientWithLoanDetails, loan: Loan) => {
     if (payingLoanId) return;
@@ -283,16 +247,35 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setIsExpanded(prev => !prev)}
-          className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[11px] font-bold text-zinc-200 flex items-center gap-1.5 transition-colors cursor-pointer"
-        >
-          <span>
-            {isExpanded ? "Ocultar Lista do Dia" : `Clientes do Dia (${summary.morningCount})`}
-          </span>
-          {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-yellow-500" /> : <ChevronDown className="w-3.5 h-3.5 text-yellow-500" />}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {onOpenNotifications && (
+            <button
+              type="button"
+              onClick={onOpenNotifications}
+              className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[11px] font-bold text-zinc-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Configurar notificações push agendadas do navegador"
+            >
+              <Bell className={`w-3.5 h-3.5 ${notificationsActive ? "text-emerald-400" : "text-yellow-500"}`} />
+              <span>Alertas</span>
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  notificationsActive ? "bg-emerald-400" : "bg-amber-400 animate-pulse"
+                }`}
+              />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsExpanded(prev => !prev)}
+            className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl text-[11px] font-bold text-zinc-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <span>
+              {isExpanded ? "Ocultar Lista do Dia" : `Clientes do Dia (${summary.morningCount})`}
+            </span>
+            {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-yellow-500" /> : <ChevronDown className="w-3.5 h-3.5 text-yellow-500" />}
+          </button>
+        </div>
       </div>
 
       {/* 3 Main Daily Cards Side by Side */}
@@ -318,24 +301,48 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
           </div>
         </div>
 
-        {/* 2. JÁ RECEBIDO NO DIA (PAGOS) */}
+        {/* 2. JÁ RECEBIDO NO DIA (SOMENTE DIÁRIAS/PARCELAS DO DIA + NOMES DE QUEM PAGOU) */}
         <div className="bg-zinc-900/50 border border-emerald-500/25 rounded-xl p-4 flex flex-col justify-between gap-2">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5" />
               Já Recebi no Dia (Pagos)
             </span>
-            <span className="text-[10px] font-mono font-bold text-emerald-400/90">
-              {summary.receivedTodayCount} {summary.receivedTodayCount === 1 ? "baixa" : "baixas"}
-            </span>
+            <button
+              type="button"
+              onClick={() => setShowPaidNames(prev => !prev)}
+              className="text-[10px] font-mono font-bold text-emerald-400/90 hover:text-emerald-300 underline decoration-emerald-500/40 underline-offset-2 cursor-pointer"
+              title="Mostrar ou ocultar quem pagou hoje"
+            >
+              {summary.receivedTodayCount} {summary.receivedTodayCount === 1 ? "pago" : "pagos"}
+            </button>
           </div>
           <div>
             <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-400 tracking-tight">
               {formatBRL(summary.receivedTodayTotal)}
             </div>
             <p className="text-[10px] text-zinc-500 mt-1">
-              Soma real das parcelas marcadas como pagas hoje
+              Somente diárias/parcelas do dia pagas hoje
             </p>
+
+            {/* QUEM PAGOU HOJE (NOMES VISÍVEIS DIRETO NO CARD) */}
+            {summary.paidMorning.length > 0 && showPaidNames && (
+              <div className="mt-2.5 pt-2 border-t border-emerald-500/15 space-y-1 max-h-28 overflow-y-auto pr-1">
+                {summary.paidMorning.map(({ detail, loan, paidTodayAmount }) => (
+                  <div
+                    key={`card-paid-${loan.id}`}
+                    className="flex items-center justify-between gap-2 text-[10px] font-mono"
+                  >
+                    <span className="text-zinc-200 font-semibold truncate">
+                      ✓ {detail.client.name}
+                    </span>
+                    <span className="text-emerald-400 font-bold shrink-0">
+                      {formatBRL(paidTodayAmount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -392,16 +399,10 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
 
             <p className="text-[10px] text-zinc-500 mt-1.5">
               {summary.morningTotal === 0
-                ? summary.surplusToday > 0
-                  ? `+${formatBRL(summary.surplusToday)} recebido em atrasos/adiantamentos`
-                  : "Nenhuma parcela agendada para hoje"
+                ? "Nenhuma parcela agendada para hoje"
                 : summary.remainingToday === 0
-                  ? summary.surplusToday > 0
-                    ? `Meta do dia batida! (+${formatBRL(summary.surplusToday)} em atrasos/adiantamentos)`
-                    : "100% dos valores do dia recebidos!"
-                  : summary.surplusToday > 0
-                    ? `${summary.pendingMorning.length} cliente(s) em aberto (+${formatBRL(summary.surplusToday)} extras recebidos)`
-                    : `${summary.pendingMorning.length} cliente(s) de hoje ainda em aberto`}
+                  ? "100% dos valores do dia recebidos!"
+                  : `${summary.pendingMorning.length} cliente(s) de hoje ainda em aberto`}
             </p>
           </div>
         </div>
@@ -467,20 +468,20 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
             )}
           </div>
 
-          {/* Already Paid Today */}
+          {/* Already Paid Today (Only Daily Installments) */}
           <div className="bg-zinc-900/30 border border-zinc-800/80 rounded-xl p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400">
-                Pagos Hoje ({summary.paidMorning.length + summary.extraTodayClients.length})
+                Pagos Hoje ({summary.paidMorning.length})
               </span>
               <span className="text-[10px] font-mono text-emerald-400 font-bold">
                 {formatBRL(summary.receivedTodayTotal)}
               </span>
             </div>
 
-            {summary.paidMorning.length === 0 && summary.extraTodayClients.length === 0 ? (
+            {summary.paidMorning.length === 0 ? (
               <div className="py-5 text-center text-[11px] text-zinc-500 font-mono">
-                Nenhum pagamento marcado como pago hoje ainda.
+                Nenhuma diária marcada como paga hoje ainda.
               </div>
             ) : (
               <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
@@ -499,24 +500,6 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
                     </div>
                     <span className="text-xs font-black font-mono text-emerald-400 shrink-0">
                       +{formatBRL(paidTodayAmount)}
-                    </span>
-                  </div>
-                ))}
-                {summary.extraTodayClients.map(extra => (
-                  <div
-                    key={`extra-${extra.loanId}`}
-                    className="flex items-center justify-between gap-2 p-2.5 bg-emerald-500/5 border border-emerald-500/20 rounded-lg"
-                  >
-                    <div className="min-w-0">
-                      <span className="text-xs font-bold text-zinc-100 truncate block">
-                        {extra.clientName}
-                      </span>
-                      <span className="text-[10px] font-mono text-amber-400/90">
-                        Baixa extra / atrasado ({extra.count}x)
-                      </span>
-                    </div>
-                    <span className="text-xs font-black font-mono text-emerald-400 shrink-0">
-                      +{formatBRL(extra.amount)}
                     </span>
                   </div>
                 ))}
