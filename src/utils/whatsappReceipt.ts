@@ -89,14 +89,13 @@ export function buildPaymentReceiptText(params: {
   const refDateFormatted = formatFriendlyDate(params.referenceDate);
   const nextDueFormatted = params.nextDueDate ? formatFriendlyDate(params.nextDueDate) : "";
   const remainingCount = Math.max(0, params.totalDays - params.paidCount);
-  const remainingAmount = Math.max(0, remainingCount * params.loan.dailyRate);
   const freqBadge = getLoanFrequencyBadge(params.loan);
   const amt = formatBRL(params.amountPaid);
 
   const statusLine =
     remainingCount === 0
       ? `PAGAS: ${params.paidCount}/${params.totalDays} (CONTRATO QUITADO)`
-      : `PAGAS: ${params.paidCount}/${params.totalDays} (Restam ${remainingCount}x • ${formatBRL(remainingAmount)})`;
+      : `PAGAS: ${params.paidCount}/${params.totalDays} (${remainingCount === 1 ? "Falta 1 prestação" : `Faltam ${remainingCount} prestações`})`;
 
   const nextDueLine = nextDueFormatted ? `\nPRÓXIMO VENCIMENTO: ${nextDueFormatted}` : "";
 

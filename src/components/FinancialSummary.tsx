@@ -1,7 +1,6 @@
 import React from "react";
 import { FinancialStats } from "../types";
-import { TrendingUp, ArrowDownCircle, Award, Calendar, DollarSign, Zap, Coins, PiggyBank } from "lucide-react";
-import { getFinancialCycle, formatFriendlyDate, getTodayStr } from "../utils/dateUtils";
+import { TrendingUp, Award, Coins } from "lucide-react";
 
 interface FinancialSummaryProps {
   stats: FinancialStats;
@@ -9,7 +8,13 @@ interface FinancialSummaryProps {
 }
 
 export function FinancialSummary({ stats, onTotalInvestedClick }: FinancialSummaryProps) {
-  const currentCycle = getFinancialCycle(getTodayStr());
+  const roundBRL = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
+
+  const capitalInvestido = roundBRL(stats.moneyInvested);
+  const lucroJuros = roundBRL(stats.totalProfit);
+  const totalAReceberComCapital = roundBRL(capitalInvestido + lucroJuros);
+  const avgInterestPct =
+    capitalInvestido > 0 ? ((lucroJuros / capitalInvestido) * 100).toFixed(1).replace(".", ",") : "0,0";
 
   // Formatar valores como Real Brasileiro (BRL)
   const formatBRL = (val: number) => {
@@ -20,12 +25,12 @@ export function FinancialSummary({ stats, onTotalInvestedClick }: FinancialSumma
   };
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 select-none">
-      {/* CARD 1: DINHEIRO INVESTIDO */}
-      <div 
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 select-none">
+      {/* CARD 1: SÓ O CAPITAL INVESTIDO */}
+      <div
         id="card-money-invested"
         onClick={onTotalInvestedClick}
-        className={`relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300 ${onTotalInvestedClick ? 'cursor-pointer' : ''}`}
+        className={`relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300 ${onTotalInvestedClick ? "cursor-pointer" : ""}`}
       >
         <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
           <TrendingUp className="w-16 h-16 text-yellow-500" />
@@ -34,45 +39,24 @@ export function FinancialSummary({ stats, onTotalInvestedClick }: FinancialSumma
           <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-lg">
             <TrendingUp className="w-4 h-4" />
           </div>
-          <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider text-[10px]">Total Investido</span>
-        </div>
-        <div>
-          <h3 className="text-2xl font-black text-white group-hover:text-yellow-500 transition-colors tracking-tight">
-            {formatBRL(stats.moneyInvested)}
-          </h3>
-          <p className="text-[10px] text-zinc-500 mt-1.5">Capital ativo emprestado</p>
-        </div>
-      </div>
-
-      {/* CARD 2: RECEBIDOS NO MÊS (CICLO FINANCEIRO DIA 02) */}
-      <div 
-        id="card-received-month"
-        className="relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300"
-      >
-        <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
-          <ArrowDownCircle className="w-16 h-16 text-yellow-500" />
-        </div>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-lg">
-            <ArrowDownCircle className="w-4 h-4" />
-          </div>
-          <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider text-[10px]">Recebido (Mês)</span>
-        </div>
-        <div>
-          <h3 className="text-2xl font-black text-yellow-500 tracking-tight">
-            {formatBRL(stats.receivedThisMonth)}
-          </h3>
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-zinc-500 mt-1.5">
-            <Calendar className="w-3 h-3 text-yellow-500/60" />
-            Vira dia 02 ({formatFriendlyDate(currentCycle.start).slice(0, 5)} a {formatFriendlyDate(currentCycle.end).slice(0, 5)})
+          <span className="text-zinc-400 font-bold uppercase tracking-wider text-[10px]">
+            Capital Investido
           </span>
         </div>
+        <div>
+          <h3 className="text-2xl sm:text-3xl font-black text-white group-hover:text-yellow-500 transition-colors tracking-tight font-mono">
+            {formatBRL(capitalInvestido)}
+          </h3>
+          <p className="text-[10px] text-zinc-500 mt-1.5">
+            Só o capital principal ativo emprestado
+          </p>
+        </div>
       </div>
 
-      {/* CARD 3: VALOR A RECEBER (TODOS APORTES) */}
-      <div 
+      {/* CARD 2: SOMA DO TOTAL A RECEBER COM O CAPITAL INVESTIDO */}
+      <div
         id="card-to-receive-all"
-        className="relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300"
+        className="relative overflow-hidden bg-zinc-950/40 border border-yellow-500/25 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/45 transition-all duration-300"
       >
         <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
           <Coins className="w-16 h-16 text-yellow-500" />
@@ -81,81 +65,51 @@ export function FinancialSummary({ stats, onTotalInvestedClick }: FinancialSumma
           <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-lg">
             <Coins className="w-4 h-4" />
           </div>
-          <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider text-[10px]">Valor a Receber</span>
+          <span className="text-yellow-500 font-bold uppercase tracking-wider text-[10px]">
+            Total a Receber (Capital + Juros)
+          </span>
         </div>
         <div>
-          <h3 className="text-2xl font-black text-white group-hover:text-yellow-500 transition-colors tracking-tight">
-            {formatBRL(stats.futureProjections)}
+          <h3 className="text-2xl sm:text-3xl font-black text-yellow-500 tracking-tight font-mono">
+            {formatBRL(totalAReceberComCapital)}
           </h3>
-          <p className="text-[10px] text-zinc-500 mt-1.5">Falta receber de todos aportes</p>
+          <p className="text-[10px] text-zinc-500 mt-1.5">
+            Soma do capital investido + juros ({formatBRL(stats.futureProjections)} em aberto)
+          </p>
         </div>
       </div>
 
-      {/* CARD 4: LUCRO ESPERADO */}
-      <div 
+      {/* CARD 3: LUCRO PELOS JUROS COLOCADOS */}
+      <div
         id="card-expected-profit"
-        className="relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300"
+        className="relative overflow-hidden bg-zinc-950/40 border border-emerald-500/25 p-5 rounded-2xl flex flex-col justify-between group hover:border-emerald-500/45 transition-all duration-300"
       >
         <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
-          <Award className="w-16 h-16 text-yellow-500" />
+          <Award className="w-16 h-16 text-emerald-400" />
         </div>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-lg">
-            <Award className="w-4 h-4" />
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+              <Award className="w-4 h-4" />
+            </div>
+            <span className="text-emerald-400 font-bold uppercase tracking-wider text-[10px]">
+              Lucro (Juros)
+            </span>
           </div>
-          <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider text-[10px]">Lucro Esperado</span>
+          <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+            +{avgInterestPct}%
+          </span>
         </div>
         <div>
-          <h3 className="text-2xl font-black text-white group-hover:text-yellow-500 transition-colors tracking-tight">
-            {formatBRL(stats.totalProfit)}
+          <h3 className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight font-mono">
+            {formatBRL(lucroJuros)}
           </h3>
-          <p className="text-[10px] text-zinc-500 mt-1.5">Juros projetados nos ativos</p>
-        </div>
-      </div>
-
-      {/* CARD 5: LUCRO MENSAL REALIZADO */}
-      <div 
-        id="card-monthly-profit-realized"
-        className="relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300"
-      >
-        <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
-          <PiggyBank className="w-16 h-16 text-yellow-500" />
-        </div>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-lg">
-            <PiggyBank className="w-4 h-4" />
-          </div>
-          <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider text-[10px]">Lucro Mensal</span>
-        </div>
-        <div>
-          <h3 className="text-2xl font-black text-yellow-500 tracking-tight">
-            {formatBRL(stats.monthlyProfit)}
-          </h3>
-          <p className="text-[10px] text-zinc-500 mt-1.5">Juros recuperados neste mês</p>
-        </div>
-      </div>
-
-      {/* CARD 6: RECEBIDOS NA SEMANA */}
-      <div 
-        id="card-received-week"
-        className="relative overflow-hidden bg-zinc-950/40 border border-zinc-800/80 p-5 rounded-2xl flex flex-col justify-between group hover:border-yellow-500/30 transition-all duration-300"
-      >
-        <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:opacity-10 transition-opacity">
-          <Zap className="w-16 h-16 text-yellow-500" />
-        </div>
-        <div className="flex items-center gap-2 mb-3">
-          <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-lg">
-            <Zap className="w-4 h-4" />
-          </div>
-          <span className="text-xs text-zinc-400 font-bold uppercase tracking-wider text-[10px]">Semana (Últimos 7d)</span>
-        </div>
-        <div>
-          <h3 className="text-2xl font-black text-white group-hover:text-yellow-500 transition-colors tracking-tight">
-            {formatBRL(stats.receivedThisWeek)}
-          </h3>
-          <p className="text-[10px] text-zinc-500 mt-1.5">Soma móvel dos últimos 7 dias</p>
+          <p className="text-[10px] text-zinc-500 mt-1.5">
+            Calculado pelos juros colocados nos contratos ativos
+          </p>
         </div>
       </div>
     </div>
   );
 }
+

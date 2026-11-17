@@ -322,12 +322,11 @@ export const ClientCard: React.FC<ClientCardProps> = ({
       ? formatFriendlyDate(lastReceiptDetails.nextDueDate)
       : "";
     const remainingCount = Math.max(0, total - paid);
-    const remainingAmount = Math.max(0, remainingCount * (activeLoan?.dailyRate || 0));
     const freqBadge = activeLoan ? getLoanFrequencyBadge(activeLoan) : "DIÁRIA";
     const statusLine =
       remainingCount === 0
         ? `PAGAS: ${paid}/${total} (CONTRATO QUITADO)`
-        : `PAGAS: ${paid}/${total} (Restam ${remainingCount}x • ${formatBRL(remainingAmount)})`;
+        : `PAGAS: ${paid}/${total} (${remainingCount === 1 ? "Falta 1 prestação" : `Faltam ${remainingCount} prestações`})`;
     const nextDueLine = nextDueFormatted ? `\nPRÓXIMO VENCIMENTO: ${nextDueFormatted}` : "";
 
     const msg = `${name}
