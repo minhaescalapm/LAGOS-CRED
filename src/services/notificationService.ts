@@ -1,6 +1,7 @@
 import { ClientWithLoanDetails, Payment } from "../types";
 import { getTodayStr, isSunday } from "../utils/dateUtils";
 import {
+  getEffectiveNextDueDate,
   getLoanFrequency,
   getLoanScheduledDates,
   getWeekdayFromDate,
@@ -250,7 +251,11 @@ export function computeDailyNotificationSummary(
       p => p.paymentDate < targetDate && !isPaymentForTargetDay(p)
     ).length;
 
-    if (paymentsBeforeToday < expectedUpToToday) {
+    const effectiveNextDue = getEffectiveNextDueDate(loan, detail.paidCount, latestStoredRef || undefined);
+    const isDueTodayByLastPaid =
+      detail.paidCount < loan.totalDays && Boolean(effectiveNextDue && effectiveNextDue <= targetDate);
+
+    if (paymentsBeforeToday < expectedUpToToday || (paidTodayList.length === 0 && isDueTodayByLastPaid)) {
       morningCount += 1;
       morningTotal = roundBRL(morningTotal + loan.dailyRate);
 

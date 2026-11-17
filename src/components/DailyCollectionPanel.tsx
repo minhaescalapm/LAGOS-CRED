@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { ClientWithLoanDetails, Loan, Payment } from "../types";
 import { formatFriendlyDate, isSunday } from "../utils/dateUtils";
 import {
+  getEffectiveNextDueDate,
   getLoanFrequency,
   getLoanFrequencyBadge,
   getLoanScheduledDates,
@@ -132,8 +133,12 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
         p => p.paymentDate < targetDate && !isPaymentForTargetDay(p)
       ).length;
 
+      const effectiveNextDue = getEffectiveNextDueDate(loan, detail.paidCount, latestStoredRef || undefined);
+      const isDueTodayByLastPaid =
+        detail.paidCount < loan.totalDays && Boolean(effectiveNextDue && effectiveNextDue <= targetDate);
+
       // Morning Rule: 1 daily installment for today (NEVER sums overdue installments from previous days)
-      if (paymentsBeforeToday < expectedUpToToday) {
+      if (paymentsBeforeToday < expectedUpToToday || (paidTodayList.length === 0 && isDueTodayByLastPaid)) {
         morningTotal = roundBRL(morningTotal + loan.dailyRate);
         const rawPaidAmount = roundBRL(paidTodayList.reduce((sum, p) => sum + p.amount, 0));
         // Only count today's daily/scheduled portion (1 installment max) inside "Já Recebi no Dia (Pagos)"

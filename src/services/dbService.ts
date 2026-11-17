@@ -8,8 +8,10 @@ import {
 } from "../utils/dateUtils";
 import {
   computeDefaultFirstDueDate,
+  getEffectiveNextDueDate,
   getLoanFrequency,
   getLoanScheduledDates,
+  getRemainingScheduledDates,
   stepReferenceDate
 } from "../utils/loanSchedule";
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
@@ -317,15 +319,15 @@ export function buildClientLoanDetail(
     referenceDate = loan.startDate;
   }
 
-  const allScheduledDates = getLoanScheduledDates(loan);
-  const nextDueDate = paidCount < allScheduledDates.length ? allScheduledDates[paidCount] : undefined;
+  const lastPaidRef = paidCount > 0 ? loanPayments[paidCount - 1].referenceDate : undefined;
+  const nextDueDate = getEffectiveNextDueDate(loan, paidCount, lastPaidRef);
 
   const isToday = simulationDate === getTodayStr();
   const currentHour = new Date().getHours();
   const limitDate = (isToday && currentHour < 19) ? addDays(simulationDate, -1) : simulationDate;
 
-  const expectedPayments = allScheduledDates.filter(d => d <= limitDate).length;
-  const daysBehind = Math.max(0, expectedPayments - paidCount);
+  const remainingDates = getRemainingScheduledDates(loan, paidCount, lastPaidRef);
+  const daysBehind = remainingDates.filter(d => d <= limitDate).length;
   const isDelayed = daysBehind >= 1 && paidCount < totalDays;
 
   return {
@@ -1195,9 +1197,8 @@ export const dbService = {
           : loan.startDate;
 
         for (let i = 0; i < daysToRegister; i++) {
-          const scheduleCandidate = scheduledDates[countAlreadyPaid + i];
-          if (scheduleCandidate && (countAlreadyPaid === 0 || scheduleCandidate > currentRef)) {
-            currentRef = scheduleCandidate;
+          if (countAlreadyPaid === 0 && i === 0) {
+            currentRef = scheduledDates[0] || stepReferenceDate(loan.startDate, 1, loan);
           } else {
             currentRef = stepReferenceDate(currentRef, 1, loan);
           }

@@ -351,13 +351,14 @@ export function getLoanFinalPaymentProjection(
     };
   }
 
-  const nextScheduled = paidCount < scheduledDates.length ? scheduledDates[paidCount] : undefined;
+  const nextScheduled = getEffectiveNextDueDate(loan, paidCount, latestStoredRef || undefined);
   if (nextScheduled && nextScheduled >= baseToday) {
+    const projectedEndDate = stepReferenceDate(nextScheduled, remainingInstallments - 1, loan);
     return {
       scheduledEndDate,
-      projectedEndDate: scheduledEndDate,
+      projectedEndDate,
       remainingInstallments,
-      isExtendedByDelay: false
+      isExtendedByDelay: projectedEndDate > scheduledEndDate
     };
   }
 
@@ -391,3 +392,46 @@ export function getLoanFinalPaymentProjection(
     isExtendedByDelay: projectedEndDate > scheduledEndDate
   };
 }
+
+/**
+ * Computes the effective next due date for a contract, always stepping from the
+ * actual last paid referenceDate when payments exist so custom/shifted payments
+ * never skip the immediate next cycle date.
+ */
+export function getEffectiveNextDueDate(
+  loan: Pick<Loan, "startDate" | "totalDays" | "excludeSundays" | "frequency" | "paymentWeekday" | "firstDueDate">,
+  paidCount: number,
+  lastPaidRefDate?: string
+): string | undefined {
+  if (paidCount >= loan.totalDays) return undefined;
+  if (paidCount > 0 && lastPaidRefDate) {
+    return stepReferenceDate(lastPaidRefDate, 1, loan);
+  }
+  const scheduled = getLoanScheduledDates(loan);
+  return paidCount < scheduled.length ? scheduled[paidCount] : undefined;
+}
+
+/**
+ * Generates all remaining unpaid due dates anchored at `getEffectiveNextDueDate`.
+ */
+export function getRemainingScheduledDates(
+  loan: Pick<Loan, "startDate" | "totalDays" | "excludeSundays" | "frequency" | "paymentWeekday" | "firstDueDate">,
+  paidCount: number,
+  lastPaidRefDate?: string
+): string[] {
+  const remaining = Math.max(0, loan.totalDays - paidCount);
+  if (remaining === 0) return [];
+  if (paidCount === 0) {
+    return getLoanScheduledDates(loan).slice(0, remaining);
+  }
+  const firstDue = getEffectiveNextDueDate(loan, paidCount, lastPaidRefDate);
+  if (!firstDue) return [];
+  const dates: string[] = [firstDue];
+  let cursor = firstDue;
+  for (let i = 1; i < remaining; i++) {
+    cursor = stepReferenceDate(cursor, 1, loan);
+    dates.push(cursor);
+  }
+  return dates;
+}
+

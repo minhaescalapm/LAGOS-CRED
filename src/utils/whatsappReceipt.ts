@@ -1,9 +1,9 @@
 import { Loan } from "../types";
 import { addDays, formatFriendlyDate, isSunday } from "./dateUtils";
 import {
+  getEffectiveNextDueDate,
   getLoanFrequency,
   getLoanFrequencyBadge,
-  getLoanScheduledDates,
   stepReferenceDate
 } from "./loanSchedule";
 
@@ -54,15 +54,10 @@ export function getNextDueDateAfterPayment(
   rawReferenceDate: string
 ): string | undefined {
   if (newPaidCount >= loan.totalDays) return undefined;
-  const scheduled = getLoanScheduledDates(loan);
-  const candidate = scheduled[newPaidCount];
-  if (candidate && (!rawReferenceDate || candidate > rawReferenceDate)) {
-    return candidate;
-  }
   if (rawReferenceDate) {
     return stepReferenceDate(rawReferenceDate, 1, loan);
   }
-  return undefined;
+  return getEffectiveNextDueDate(loan, newPaidCount, rawReferenceDate);
 }
 
 export function buildPaymentReceiptText(params: {

@@ -26,6 +26,7 @@ import {
   getLoanFrequency,
   getLoanFrequencyBadge,
   getLoanScheduledDates,
+  getRemainingScheduledDates,
   getRetroactiveStartDateForFrequency,
   stepReferenceDate
 } from "../utils/loanSchedule";
@@ -97,15 +98,6 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     return getLoanFinalPaymentProjection(activeLoan, paidCount, clientDetail.payments, baseToday);
   }, [activeLoan, paidCount, clientDetail.payments, baseToday]);
 
-  const limitDateForCutoff = (isToday && !isAfter7PM) ? addDays(baseToday, -1) : baseToday;
-  const expectedPayments = allScheduledDates.filter(d => d <= limitDateForCutoff).length;
-  const daysBehind = activeLoan ? Math.max(0, expectedPayments - paidCount) : 0;
-  const isDelayed = activeLoan ? (daysBehind >= 1 && paidCount < totalDays) : false;
-
-  const scheduledUpToToday = allScheduledDates.filter(d => d <= baseToday).length;
-  const isTodayScheduled = allScheduledDates.includes(baseToday);
-  const isTodayPending = activeLoan ? (paidCount < totalDays && scheduledUpToToday > paidCount) : false;
-
   const lastStoredRefDate = React.useMemo(() => {
     if (clientDetail.payments.length > 0) {
       const sorted = [...clientDetail.payments].sort((a, b) => a.referenceDate.localeCompare(b.referenceDate));
@@ -120,10 +112,19 @@ export const ClientCard: React.FC<ClientCardProps> = ({
       )
     : false;
 
-  // The first paidCount schedules are already paid. The rest are unpaid!
+  // Unpaid due dates anchored from the actual last paid referenceDate (never skips the immediate next due day)
   const unpaidSchedules = React.useMemo(() => {
-    return allScheduledDates.slice(paidCount);
-  }, [allScheduledDates, paidCount]);
+    if (!activeLoan) return [];
+    const lastRef = clientDetail.payments.length > 0 ? lastStoredRefDate : undefined;
+    return getRemainingScheduledDates(activeLoan, paidCount, lastRef);
+  }, [activeLoan, paidCount, clientDetail.payments.length, lastStoredRefDate]);
+
+  const limitDateForCutoff = (isToday && !isAfter7PM) ? addDays(baseToday, -1) : baseToday;
+  const daysBehind = activeLoan ? unpaidSchedules.filter(d => d <= limitDateForCutoff).length : 0;
+  const isDelayed = activeLoan ? (daysBehind >= 1 && paidCount < totalDays) : false;
+
+  const isTodayScheduled = activeLoan ? (allScheduledDates.includes(baseToday) || unpaidSchedules.includes(baseToday)) : false;
+  const isTodayPending = activeLoan ? (paidCount < totalDays && unpaidSchedules.some(d => d <= baseToday)) : false;
 
   // Actual stored referenceDate for the next installment
   const getNextInstallmentRefDate = (startRef: string | null, count: number) => {
@@ -131,9 +132,7 @@ export const ClientCard: React.FC<ClientCardProps> = ({
       return startRef || lastStoredRefDate;
     }
     if (activeLoan && unpaidSchedules.length >= count && (!startRef || startRef === lastStoredRefDate)) {
-      if (paidCount === 0 || unpaidSchedules[0] > lastStoredRefDate) {
-        return unpaidSchedules[count - 1];
-      }
+      return unpaidSchedules[count - 1];
     }
     const base = startRef || (activeLoan ? activeLoan.startDate : baseToday);
     return activeLoan ? stepReferenceDate(base, count, activeLoan) : addDays(base, count);
@@ -179,12 +178,27 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const [renewFrequency, setRenewFrequency] = useState<PaymentFrequency>(() => getLoanFrequency(activeLoan));
   const [renewWeekday, setRenewWeekday] = useState<number>(() => activeLoan?.paymentWeekday ?? 5);
 
+  const getScheduledLastRefForStart = (start: string, count: number) => {
+    if (!activeLoan || count <= 0 || !start) return baseToday;
+    const sched = getLoanScheduledDates(
+      {
+        ...activeLoan,
+        startDate: start,
+        firstDueDate: undefined
+      },
+      count
+    );
+    return sched[count - 1] || start;
+  };
+
   const openAdjustmentPanel = () => {
     if (!activeLoan) return;
+    const scheduledEnd = getScheduledLastRefForStart(activeLoan.startDate, paidCount);
+    const hasCustomShiftedRef = paidCount > 0 && clientDetail.payments.length > 0 && lastStoredRefDate !== scheduledEnd;
     setAdjustedPaidCount(paidCount);
     setAdjustedStartDate(activeLoan.startDate);
     setAdjustedBaseToday(paidCount > 0 ? lastStoredRefDate : baseToday);
-    setHasEditedEndRef(false);
+    setHasEditedEndRef(hasCustomShiftedRef);
     setHasEditedStartDate(false);
     setIsAdjusting(true);
     setIsExpandingPay(false);
@@ -1208,7 +1222,13 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
               <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden h-[34px]">
                 <button
                   type="button"
-                  onClick={() => setAdjustedPaidCount(p => Math.max(0, p - 1))}
+                  onClick={() => {
+                    const nextCount = Math.max(0, adjustedPaidCount - 1);
+                    setAdjustedPaidCount(nextCount);
+                    if (!hasEditedEndRef) {
+                      setAdjustedBaseToday(getScheduledLastRefForStart(adjustedStartDate, nextCount));
+                    }
+                  }}
                   className="px-2 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-white font-black cursor-pointer text-xs"
                 >
                   -
@@ -1218,12 +1238,24 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                   min="0"
                   max={totalDays}
                   value={adjustedPaidCount}
-                  onChange={e => setAdjustedPaidCount(Math.min(totalDays, Math.max(0, Number(e.target.value) || 0)))}
+                  onChange={e => {
+                    const nextCount = Math.min(totalDays, Math.max(0, Number(e.target.value) || 0));
+                    setAdjustedPaidCount(nextCount);
+                    if (!hasEditedEndRef) {
+                      setAdjustedBaseToday(getScheduledLastRefForStart(adjustedStartDate, nextCount));
+                    }
+                  }}
                   className="w-full text-center bg-transparent text-[11px] font-mono font-bold text-white border-none focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none font-extrabold"
                 />
                 <button
                   type="button"
-                  onClick={() => setAdjustedPaidCount(p => Math.min(totalDays, p + 1))}
+                  onClick={() => {
+                    const nextCount = Math.min(totalDays, adjustedPaidCount + 1);
+                    setAdjustedPaidCount(nextCount);
+                    if (!hasEditedEndRef) {
+                      setAdjustedBaseToday(getScheduledLastRefForStart(adjustedStartDate, nextCount));
+                    }
+                  }}
                   className="px-2 py-1.5 hover:bg-zinc-800 text-zinc-400 hover:text-white font-black cursor-pointer text-xs"
                 >
                   +
@@ -1238,9 +1270,13 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
                 type="date"
                 value={adjustedStartDate}
                 onChange={e => {
-                  setAdjustedStartDate(e.target.value);
+                  const newStart = e.target.value;
+                  setAdjustedStartDate(newStart);
                   setHasEditedStartDate(true);
                   setHasEditedEndRef(false);
+                  if (adjustedPaidCount > 0 && newStart) {
+                    setAdjustedBaseToday(getScheduledLastRefForStart(newStart, adjustedPaidCount));
+                  }
                 }}
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg py-1 px-1.5 text-[11px] text-white font-mono focus:outline-none cursor-pointer h-[34px] font-bold"
               />
