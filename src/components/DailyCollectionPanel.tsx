@@ -62,6 +62,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
       paidTodayAmount: number;
     }[] = [];
 
+    const settledTargetPaymentsById = new Map<string, Payment>();
     let morningTotal = 0;
 
     clientsWithLoans.forEach(detail => {
@@ -75,12 +76,25 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
       if (!isScheduledToday) return;
 
       const expectedUpToToday = scheduledDates.filter(d => d <= targetDate).length;
-      const paymentsBeforeToday = detail.payments.filter(p => p.paymentDate < targetDate).length;
+      const latestStoredRef = detail.payments.reduce(
+        (max, p) => (p.referenceDate > max ? p.referenceDate : max),
+        ""
+      );
+
+      // Counts a payment as belonging to today if it fell on targetDate OR if it covers targetDate as the latest installment ("Última Paga = hoje")
+      const isPaymentForTargetDay = (p: Payment) =>
+        p.paymentDate === targetDate ||
+        (p.referenceDate === targetDate && latestStoredRef === targetDate);
+
+      const paymentsBeforeToday = detail.payments.filter(
+        p => p.paymentDate < targetDate && !isPaymentForTargetDay(p)
+      ).length;
 
       // Morning Rule: 1 daily installment for today (NEVER sums overdue installments from previous days)
       if (paymentsBeforeToday < expectedUpToToday) {
         morningTotal = roundBRL(morningTotal + loan.dailyRate);
-        const paidTodayList = detail.payments.filter(p => p.paymentDate === targetDate);
+        const paidTodayList = detail.payments.filter(isPaymentForTargetDay);
+        paidTodayList.forEach(p => settledTargetPaymentsById.set(p.id, p));
         const paidTodayAmount = roundBRL(paidTodayList.reduce((sum, p) => sum + p.amount, 0));
         morningItems.push({
           detail,
@@ -92,10 +106,14 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
       }
     });
 
-    // All payments physically received on targetDate
-    const todayPayments = allPayments.filter(
-      p => p.paymentDate === targetDate && activeLoanIds.has(p.loanId)
-    );
+    // Also include all payments physically received on targetDate (e.g. overdue/advance/extra from non-morning clients)
+    allPayments.forEach(p => {
+      if (p.paymentDate === targetDate && activeLoanIds.has(p.loanId)) {
+        settledTargetPaymentsById.set(p.id, p);
+      }
+    });
+
+    const todayPayments = Array.from(settledTargetPaymentsById.values());
     const receivedTodayTotal = roundBRL(todayPayments.reduce((sum, p) => sum + p.amount, 0));
 
     // Extra / overdue payments received today from clients not in morning list

@@ -99,7 +99,6 @@ export const ClientCard: React.FC<ClientCardProps> = ({
   const scheduledUpToToday = allScheduledDates.filter(d => d <= baseToday).length;
   const isTodayScheduled = allScheduledDates.includes(baseToday);
   const isTodayPending = activeLoan ? (paidCount < totalDays && scheduledUpToToday > paidCount) : false;
-  const hasPaidToday = activeLoan ? clientDetail.payments.some(p => p.paymentDate === baseToday) : false;
 
   const lastStoredRefDate = React.useMemo(() => {
     if (clientDetail.payments.length > 0) {
@@ -108,6 +107,12 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     }
     return activeLoan ? activeLoan.startDate : baseToday;
   }, [clientDetail.payments, activeLoan, baseToday]);
+
+  const hasPaidToday = activeLoan
+    ? clientDetail.payments.some(
+        p => p.paymentDate === baseToday || (p.referenceDate === baseToday && lastStoredRefDate === baseToday)
+      )
+    : false;
 
   // The first paidCount schedules are already paid. The rest are unpaid!
   const unpaidSchedules = React.useMemo(() => {

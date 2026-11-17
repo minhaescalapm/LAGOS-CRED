@@ -1290,7 +1290,8 @@ export const dbService = {
   async adjustLoanPaymentsAndStartDate(
     loanId: string, 
     targetPaidCount: number, 
-    targetStartDate: string
+    targetStartDate: string,
+    effectiveToday?: string
   ): Promise<void> {
     return withLoanLock(loanId, async () => {
       const loans = await this.getLoans({ throwOnCloudError: true });
@@ -1306,7 +1307,7 @@ export const dbService = {
       );
 
       const isExcluding = loan.excludeSundays !== false;
-      const todayStr = getTodayStr();
+      const todayStr = effectiveToday || getTodayStr();
       const startDateChanged = targetStartDate !== loan.startDate;
       const freq = getLoanFrequency(loan);
       const effectiveFirstDueDate =
@@ -1333,7 +1334,9 @@ export const dbService = {
         targetPayments.push({
           id: existing ? existing.id : generateUUID(),
           loanId,
-          paymentDate: existing ? existing.paymentDate : (currentRef <= todayStr ? currentRef : todayStr),
+          paymentDate: existing
+            ? existing.paymentDate
+            : (currentRef <= todayStr ? currentRef : todayStr),
           referenceDate: currentRef,
           amount: loan.dailyRate
         });

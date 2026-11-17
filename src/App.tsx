@@ -146,6 +146,24 @@ export default function App() {
     refreshData();
   }, [simulationDate]);
 
+  useEffect(() => {
+    const syncCalendarDay = () => {
+      const today = getTodayStr();
+      setSimulationDate(prev => (prev !== today ? today : prev));
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        syncCalendarDay();
+      }
+    };
+    window.addEventListener("focus", syncCalendarDay);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", syncCalendarDay);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
   // Handle new client creation
   const handleAddNewClient = async (data: {
     name: string;
@@ -245,7 +263,8 @@ export default function App() {
           await dbService.adjustLoanPaymentsAndStartDate(
             editingClient.activeLoan.id,
             data.alreadyPaidCount !== undefined ? data.alreadyPaidCount : editingClient.paidCount,
-            data.startDate
+            data.startDate,
+            simulationDate
           );
         }
       } else {
@@ -409,7 +428,7 @@ export default function App() {
   const handleAdjustLoan = async (loanId: string, targetPaidCount: number, targetStartDate: string) => {
     setIsLoading(true);
     try {
-      await dbService.adjustLoanPaymentsAndStartDate(loanId, targetPaidCount, targetStartDate);
+      await dbService.adjustLoanPaymentsAndStartDate(loanId, targetPaidCount, targetStartDate, simulationDate);
       await refreshData();
     } catch (err: any) {
       console.error("Erro ao reajustar contrato:", err);
