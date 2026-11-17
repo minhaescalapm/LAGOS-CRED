@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ClientWithLoanDetails, PaymentFrequency } from "../types";
+import { ClientWithLoanDetails, Payment, PaymentFrequency } from "../types";
 import { 
   CheckCircle, 
   Clock, 
@@ -28,10 +28,17 @@ import {
   getRetroactiveStartDateForFrequency,
   stepReferenceDate
 } from "../utils/loanSchedule";
+import {
+  buildPaymentReceiptText,
+  buildWhatsAppUrl,
+  formatWhatsAppPhone,
+  getDisplayCoverageDate,
+  getNextDueDateAfterPayment
+} from "../utils/whatsappReceipt";
 
 interface ClientCardProps {
   clientDetail: ClientWithLoanDetails;
-  onRegisterPayment: (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => Promise<void>;
+  onRegisterPayment: (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => Promise<Payment[] | void>;
   onOpenPixModal: (clientName: string) => void;
   onDeleteClient: (clientId: string, loanId?: string) => void;
   onEditClient?: (clientDetail: ClientWithLoanDetails) => void;
@@ -113,7 +120,9 @@ export const ClientCard: React.FC<ClientCardProps> = ({
       return startRef || lastStoredRefDate;
     }
     if (activeLoan && unpaidSchedules.length >= count && (!startRef || startRef === lastStoredRefDate)) {
-      return unpaidSchedules[count - 1];
+      if (paidCount === 0 || unpaidSchedules[0] > lastStoredRefDate) {
+        return unpaidSchedules[count - 1];
+      }
     }
     const base = startRef || (activeLoan ? activeLoan.startDate : baseToday);
     return activeLoan ? stepReferenceDate(base, count, activeLoan) : addDays(base, count);
@@ -250,7 +259,8 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     x: number; 
     y: number; 
     paymentDate: string; 
-    referenceDate: string; 
+    referenceDate: string;
+    nextDueDate?: string;
     amountPaid?: number;
   } | null>(null);
 
@@ -268,40 +278,34 @@ export const ClientCard: React.FC<ClientCardProps> = ({
     }).format(val);
   };
 
-  const formatDDMM = (dateStr: string) => {
-    if (!dateStr) return "";
-    const parts = dateStr.split("-");
-    if (parts.length !== 3) return dateStr;
-    return `${parts[2]}/${parts[1]}`;
-  };
-
   React.useEffect(() => {
-    if (lastReceiptDetails) {
+    if (lastReceiptDetails && activeLoan) {
       const name = client.name.toUpperCase();
-      const refDateFormatted = formatDDMM(lastReceiptDetails.referenceDate);
+      const refDateFormatted = formatFriendlyDate(lastReceiptDetails.referenceDate);
       const paid = lastReceiptDetails.x;
       const total = lastReceiptDetails.y;
-      const amt = formatBRL(lastReceiptDetails.amountPaid || (activeLoan?.dailyRate || 0));
+      const amtValue = lastReceiptDetails.amountPaid ?? (activeLoan.dailyRate || 0);
+      const amt = formatBRL(amtValue);
 
       setReceiptClientName(name);
       setReceiptUpdateDate(refDateFormatted);
       setReceiptPaidCount(paid);
       setReceiptTotalDays(total);
       setReceiptAmount(amt);
-      
-      const msg = `${name}
-ULTIMA ATUALIZAÇÃO ${refDateFormatted}
-PAGAS ${paid}/${total}
-VALOR: ${amt}
 
-FAÇA SEU PIX: lagoscelular5@gmail.com
-
-Estaremos a Disposição, não perca seu crédito.
-
-🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨\n\n\n`;
+      const msg = buildPaymentReceiptText({
+        clientName: name,
+        loan: activeLoan,
+        paidCount: paid,
+        totalDays: total,
+        paymentDate: lastReceiptDetails.paymentDate,
+        referenceDate: lastReceiptDetails.referenceDate,
+        nextDueDate: lastReceiptDetails.nextDueDate,
+        amountPaid: amtValue
+      });
       setReceiptCustomText(msg);
     }
-  }, [lastReceiptDetails, client.name, activeLoan?.dailyRate]);
+  }, [lastReceiptDetails, client.name, activeLoan]);
 
   // Regenerate receipt custom text when individual state values are changed
   const handleReceiptFieldChange = (
@@ -311,10 +315,27 @@ Estaremos a Disposição, não perca seu crédito.
     total: number,
     amt: string
   ) => {
+    const payDateFormatted = lastReceiptDetails?.paymentDate
+      ? formatFriendlyDate(lastReceiptDetails.paymentDate)
+      : formatFriendlyDate(baseToday);
+    const nextDueFormatted = lastReceiptDetails?.nextDueDate
+      ? formatFriendlyDate(lastReceiptDetails.nextDueDate)
+      : "";
+    const remainingCount = Math.max(0, total - paid);
+    const remainingAmount = Math.max(0, remainingCount * (activeLoan?.dailyRate || 0));
+    const freqBadge = activeLoan ? getLoanFrequencyBadge(activeLoan) : "DIÁRIA";
+    const statusLine =
+      remainingCount === 0
+        ? `PAGAS: ${paid}/${total} (CONTRATO QUITADO)`
+        : `PAGAS: ${paid}/${total} (Restam ${remainingCount}x • ${formatBRL(remainingAmount)})`;
+    const nextDueLine = nextDueFormatted ? `\nPRÓXIMO VENCIMENTO: ${nextDueFormatted}` : "";
+
     const msg = `${name}
-ULTIMA ATUALIZAÇÃO ${upDate}
-PAGAS ${paid}/${total}
-VALOR: ${amt}
+PAGAMENTO CONFIRMADO (${freqBadge})
+DATA DO PAGAMENTO: ${payDateFormatted}
+ULTIMA ATUALIZAÇÃO: ${upDate}
+${statusLine}${nextDueLine}
+VALOR PAGO: ${amt}
 
 FAÇA SEU PIX: lagoscelular5@gmail.com
 
@@ -331,7 +352,7 @@ Estaremos a Disposição, não perca seu crédito.
     // Trigger charge count increment
     onIncrementCharge?.(client.id);
 
-    const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
+    const formattedPhone = formatWhatsAppPhone(client.phone);
     const unitPlural = FREQUENCY_UNIT_PLURAL[loanFreq];
     const unitSingular = FREQUENCY_UNIT_SINGULAR[loanFreq];
     const dateFormatted = paidCount > 0 
@@ -445,14 +466,28 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
     if (isSubmittingPayment) return;
     setIsSubmittingPayment(true);
     try {
-      await onRegisterPayment(activeLoan.id, payDaysCount, paymentDate, customRefDate);
-      const finalRefDate = getPredictedRefDate(customRefDate, Math.max(0, payDaysCount - 1));
+      const result = await onRegisterPayment(activeLoan.id, payDaysCount, paymentDate, customRefDate);
+      const persisted = Array.isArray(result) ? result : [];
+      const registeredCount = persisted.length > 0 ? persisted.length : payDaysCount;
+      const newPaidCount = Math.min(totalDays, paidCount + registeredCount);
+      const rawRef =
+        persisted.length > 0
+          ? persisted[persisted.length - 1].referenceDate
+          : getNextInstallmentRefDate(customRefDate, Math.max(0, payDaysCount - 1));
+      const finalRefDate = getDisplayCoverageDate(activeLoan, rawRef);
+      const nextDue = getNextDueDateAfterPayment(activeLoan, newPaidCount, rawRef);
+      const paidAmount =
+        persisted.length > 0
+          ? persisted.reduce((sum, p) => sum + p.amount, 0)
+          : payDaysCount * (activeLoan?.dailyRate || 0);
+
       setLastReceiptDetails({
-        x: paidCount + payDaysCount,
+        x: newPaidCount,
         y: totalDays,
         paymentDate: paymentDate,
         referenceDate: finalRefDate,
-        amountPaid: payDaysCount * (activeLoan?.dailyRate || 0)
+        nextDueDate: nextDue,
+        amountPaid: paidAmount
       });
       setShowWhatsappReceipt(true);
       setIsExpandingPay(false);
@@ -461,21 +496,64 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
     }
   };
 
-  // 1-click quick pay for today
+  // 1-click quick pay for today -> registers payment & opens WhatsApp directly with updated installment + dates
   const handleQuickPayToday = async () => {
     if (!activeLoan || isFullyPaid || isSubmittingPayment) return;
+    const hasPhone = Boolean(formatWhatsAppPhone(client.phone));
+    const waWin = hasPhone ? window.open("", "_blank") : null;
     setIsSubmittingPayment(true);
     try {
-      await onRegisterPayment(activeLoan.id, 1, baseToday);
-      const nextRef = getPredictedRefDate(lastStoredRefDate, 1);
+      const result = await onRegisterPayment(activeLoan.id, 1, baseToday);
+      const persisted = Array.isArray(result) ? result : [];
+      const registeredCount = persisted.length > 0 ? persisted.length : 1;
+      const newPaidCount = Math.min(totalDays, paidCount + registeredCount);
+      const rawRef =
+        persisted.length > 0
+          ? persisted[persisted.length - 1].referenceDate
+          : getNextInstallmentRefDate(lastStoredRefDate, 1);
+      const displayRef = getDisplayCoverageDate(activeLoan, rawRef);
+      const nextDue = getNextDueDateAfterPayment(activeLoan, newPaidCount, rawRef);
+      const paidAmount =
+        persisted.length > 0
+          ? persisted.reduce((sum, p) => sum + p.amount, 0)
+          : (activeLoan.dailyRate || 0);
+
+      const receiptMsg = buildPaymentReceiptText({
+        clientName: client.name,
+        loan: activeLoan,
+        paidCount: newPaidCount,
+        totalDays,
+        paymentDate: baseToday,
+        referenceDate: displayRef,
+        nextDueDate: nextDue,
+        amountPaid: paidAmount
+      });
+
       setLastReceiptDetails({
-        x: paidCount + 1,
+        x: newPaidCount,
         y: totalDays,
         paymentDate: baseToday,
-        referenceDate: nextRef,
-        amountPaid: activeLoan.dailyRate || 0
+        referenceDate: displayRef,
+        nextDueDate: nextDue,
+        amountPaid: paidAmount
       });
       setShowWhatsappReceipt(true);
+
+      const whatsappUrl = buildWhatsAppUrl(client.phone, receiptMsg);
+      if (whatsappUrl) {
+        if (waWin && !waWin.closed) {
+          waWin.location.href = whatsappUrl;
+        } else {
+          window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+        }
+      } else if (waWin && !waWin.closed) {
+        waWin.close();
+      }
+    } catch (err) {
+      if (waWin && !waWin.closed) {
+        waWin.close();
+      }
+      throw err;
     } finally {
       setIsSubmittingPayment(false);
     }
@@ -484,9 +562,10 @@ ESTAREMOS À DISPOSIÇÃO. Não fique em atraso, para não criar dificuldade ao 
   // WhatsApp receipt generator
   const handleSendReceipt = () => {
     if (!receiptCustomText) return;
-    const formattedPhone = `55${client.phone.replace(/\D/g, "")}`;
-    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(receiptCustomText)}`;
-    window.open(url, "_blank");
+    const url = buildWhatsAppUrl(client.phone, receiptCustomText);
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
     setShowWhatsappReceipt(false);
   };
 

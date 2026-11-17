@@ -3,6 +3,13 @@ import { ClientWithLoanDetails, Loan, Payment } from "../types";
 import { formatFriendlyDate } from "../utils/dateUtils";
 import { getLoanFrequencyBadge, getLoanScheduledDates } from "../utils/loanSchedule";
 import {
+  buildPaymentReceiptText,
+  buildWhatsAppUrl,
+  formatWhatsAppPhone,
+  getDisplayCoverageDate,
+  getNextDueDateAfterPayment
+} from "../utils/whatsappReceipt";
+import {
   Sun,
   CheckCircle2,
   Clock,
@@ -13,12 +20,14 @@ import {
   AlertTriangle
 } from "lucide-react";
 
+const roundBRL = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
+
 interface DailyCollectionPanelProps {
   clientsWithLoans: ClientWithLoanDetails[];
   allLoans: Loan[];
   allPayments: Payment[];
   targetDate: string;
-  onMarkPaidToday: (loanId: string) => Promise<void>;
+  onMarkPaidToday: (loanId: string) => Promise<Payment[] | void>;
   isLoading?: boolean;
 }
 
@@ -70,9 +79,9 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
 
       // Morning Rule: 1 daily installment for today (NEVER sums overdue installments from previous days)
       if (paymentsBeforeToday < expectedUpToToday) {
-        morningTotal += loan.dailyRate;
+        morningTotal = roundBRL(morningTotal + loan.dailyRate);
         const paidTodayList = detail.payments.filter(p => p.paymentDate === targetDate);
-        const paidTodayAmount = paidTodayList.reduce((sum, p) => sum + p.amount, 0);
+        const paidTodayAmount = roundBRL(paidTodayList.reduce((sum, p) => sum + p.amount, 0));
         morningItems.push({
           detail,
           loan,
@@ -87,7 +96,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
     const todayPayments = allPayments.filter(
       p => p.paymentDate === targetDate && activeLoanIds.has(p.loanId)
     );
-    const receivedTodayTotal = todayPayments.reduce((sum, p) => sum + p.amount, 0);
+    const receivedTodayTotal = roundBRL(todayPayments.reduce((sum, p) => sum + p.amount, 0));
 
     // Extra / overdue payments received today from clients not in morning list
     const morningLoanIds = new Set(morningItems.map(m => m.loan.id));
@@ -97,7 +106,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
       .reduce((acc: ExtraClientPayment[], p) => {
         const existing = acc.find(item => item.loanId === p.loanId);
         if (existing) {
-          existing.amount += p.amount;
+          existing.amount = roundBRL(existing.amount + p.amount);
           existing.count += 1;
         } else {
           const loan = allLoans.find(l => l.id === p.loanId);
@@ -112,9 +121,13 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
         return acc;
       }, []);
 
-    const remainingToday = Math.max(0, morningTotal - receivedTodayTotal);
-    const surplusToday = Math.max(0, receivedTodayTotal - morningTotal);
-    const progressPct = morningTotal > 0 ? Math.min(100, (receivedTodayTotal / morningTotal) * 100) : 0;
+    // Sum remaining today strictly across scheduled morning clients so extra/overdue payments never distort other clients' open amounts
+    const remainingToday = roundBRL(
+      morningItems.reduce((sum, m) => sum + Math.max(0, roundBRL(m.dailyRate - m.paidTodayAmount)), 0)
+    );
+    const morningCollectedPortion = roundBRL(Math.max(0, morningTotal - remainingToday));
+    const surplusToday = roundBRL(Math.max(0, receivedTodayTotal - morningCollectedPortion));
+    const progressPct = morningTotal > 0 ? Math.min(100, (morningCollectedPortion / morningTotal) * 100) : 0;
 
     const pendingMorning = morningItems.filter(m => !m.paidToday);
     const paidMorning = morningItems.filter(m => m.paidToday);
@@ -133,11 +146,52 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
     };
   }, [clientsWithLoans, allLoans, allPayments, targetDate]);
 
-  const handleQuickPay = async (loanId: string) => {
+  const handleQuickPay = async (detail: ClientWithLoanDetails, loan: Loan) => {
     if (payingLoanId) return;
-    setPayingLoanId(loanId);
+    const hasPhone = Boolean(formatWhatsAppPhone(detail.client.phone));
+    const waWin = hasPhone ? window.open("", "_blank") : null;
+    setPayingLoanId(loan.id);
     try {
-      await onMarkPaidToday(loanId);
+      const result = await onMarkPaidToday(loan.id);
+      const persisted = Array.isArray(result) ? result : [];
+      const registeredCount = persisted.length > 0 ? persisted.length : 1;
+      const newPaidCount = Math.min(loan.totalDays, detail.paidCount + registeredCount);
+      const rawRef =
+        persisted.length > 0
+          ? persisted[persisted.length - 1].referenceDate
+          : targetDate;
+      const displayRef = getDisplayCoverageDate(loan, rawRef);
+      const nextDue = getNextDueDateAfterPayment(loan, newPaidCount, rawRef);
+      const amountPaid =
+        persisted.length > 0
+          ? roundBRL(persisted.reduce((sum, p) => sum + p.amount, 0))
+          : loan.dailyRate;
+
+      const receiptMsg = buildPaymentReceiptText({
+        clientName: detail.client.name,
+        loan,
+        paidCount: newPaidCount,
+        totalDays: loan.totalDays,
+        paymentDate: targetDate,
+        referenceDate: displayRef,
+        nextDueDate: nextDue,
+        amountPaid
+      });
+      const whatsappUrl = buildWhatsAppUrl(detail.client.phone, receiptMsg);
+      if (whatsappUrl) {
+        if (waWin && !waWin.closed) {
+          waWin.location.href = whatsappUrl;
+        } else {
+          window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+        }
+      } else if (waWin && !waWin.closed) {
+        waWin.close();
+      }
+    } catch (err) {
+      if (waWin && !waWin.closed) {
+        waWin.close();
+      }
+      throw err;
     } finally {
       setPayingLoanId(null);
     }
@@ -279,11 +333,15 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
 
             <p className="text-[10px] text-zinc-500 mt-1.5">
               {summary.morningTotal === 0
-                ? "Nenhuma parcela agendada para hoje"
-                : summary.surplusToday > 0
-                  ? `Meta do dia batida! (+${formatBRL(summary.surplusToday)} em atrasos/adiantamentos)`
-                  : summary.remainingToday === 0
-                    ? "100% dos valores do dia recebidos!"
+                ? summary.surplusToday > 0
+                  ? `+${formatBRL(summary.surplusToday)} recebido em atrasos/adiantamentos`
+                  : "Nenhuma parcela agendada para hoje"
+                : summary.remainingToday === 0
+                  ? summary.surplusToday > 0
+                    ? `Meta do dia batida! (+${formatBRL(summary.surplusToday)} em atrasos/adiantamentos)`
+                    : "100% dos valores do dia recebidos!"
+                  : summary.surplusToday > 0
+                    ? `${summary.pendingMorning.length} cliente(s) em aberto (+${formatBRL(summary.surplusToday)} extras recebidos)`
                     : `${summary.pendingMorning.length} cliente(s) de hoje ainda em aberto`}
             </p>
           </div>
@@ -338,7 +396,7 @@ export const DailyCollectionPanel: React.FC<DailyCollectionPanelProps> = ({
                     <button
                       type="button"
                       disabled={isLoading || payingLoanId === loan.id}
-                      onClick={() => handleQuickPay(loan.id)}
+                      onClick={() => handleQuickPay(detail, loan)}
                       className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-[11px] rounded-lg flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50 shrink-0"
                     >
                       <Check className="w-3.5 h-3.5 stroke-[3]" />

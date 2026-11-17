@@ -341,7 +341,12 @@ export default function App() {
   };
 
   // Handle register payment (+1 logic) with immediate immutable state update & atomic refresh
-  const handleRegisterPayment = async (loanId: string, count: number, dateStr: string, customReferenceDate?: string) => {
+  const handleRegisterPayment = async (
+    loanId: string,
+    count: number,
+    dateStr: string,
+    customReferenceDate?: string
+  ): Promise<Payment[]> => {
     // Invalidate any earlier in-flight refreshData so an older snapshot cannot overwrite this payment
     refreshSequenceRef.current += 1;
     setIsLoading(true);
@@ -374,6 +379,7 @@ export default function App() {
       }
 
       await refreshData();
+      return persistedPayments;
     } catch (err: any) {
       alert(err.message || "Erro ao registrar o pagamento.");
       throw err;
@@ -661,9 +667,7 @@ export default function App() {
           allLoans={allLoans}
           allPayments={allPayments}
           targetDate={simulationDate}
-          onMarkPaidToday={async (loanId) => {
-            await handleRegisterPayment(loanId, 1, simulationDate);
-          }}
+          onMarkPaidToday={(loanId) => handleRegisterPayment(loanId, 1, simulationDate)}
           isLoading={isLoading}
         />
         
